@@ -38,7 +38,7 @@ class ToolDetector {
       caseSensitive: false);
 
   static final RegExp _timerRe = RegExp(
-      r'^(?:set|start)\s+(?:a\s+)?timer\s+(?:for\s+)?'
+      r'^(?:set|start)\s+(?:a\s+)?(?:timer|alarm)\s+(?:for\s+)?'
       r'(\d+)\s*(hours?|hrs?|minutes?|min|seconds?|sec)',
       caseSensitive: false);
 

@@ -24,6 +24,12 @@ void main() {
     expect(detector.detect('start a timer for 45 sec')!.seconds, 45);
   });
 
+  test('a duration alarm routes to the timer tool', () {
+    final a = detector.detect('set a alarm for 15 secs')!;
+    expect(a.kind, ToolKind.setTimer);
+    expect(a.seconds, 15);
+  });
+
   test('drafts an SMS with recipient and body', () {
     final a = detector.detect('text mom that I will be late')!;
     expect(a.kind, ToolKind.sms);
