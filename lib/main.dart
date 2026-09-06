@@ -5,8 +5,8 @@ import 'services/device_state.dart';
 import 'services/model_runner.dart';
 import 'services/router.dart';
 
-/// Everything the app needs wired once (runs at first launch; ~seconds: copies
-/// bundled GGUFs into app storage and loads both models).
+/// Everything the app needs wired once (first launch copies bundled GGUFs into
+/// app storage; tiers load on demand at first query — see ModelRunner).
 class AppServices {
   final Router router;
   final DeviceStateMonitor monitor;
@@ -22,7 +22,13 @@ class AppServices {
   }
 }
 
-void main() => runApp(CandorApp());
+void main() {
+  // Must exist before AppServices.create() constructs LlamaController()s;
+  // runApp() does this itself, but our services future starts at CandorApp
+  // construction, which is before runApp()'s binding init.
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(CandorApp());
+}
 
 class CandorApp extends StatelessWidget {
   CandorApp({super.key});
@@ -71,7 +77,7 @@ class _StartupView extends StatelessWidget {
                 children: [
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
-                  Text('Loading on-device models…'),
+                  Text('Preparing on-device models…'),
                 ],
               )
             : Padding(

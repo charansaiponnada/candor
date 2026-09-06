@@ -3,7 +3,12 @@ import 'package:llama_flutter_android/llama_flutter_android.dart' as llama;
 import '../models.dart';
 import 'device_state.dart';
 
-/// Wraps the llama.cpp Flutter plugin, one [LlamaController] per tier.
+/// Wraps the llama.cpp Flutter plugin.
+///
+/// The plugin supports exactly one loaded model at a time (`isModelLoaded` is
+/// a single global flag), so each generation loads the requested tier, runs it,
+/// and disposes it (PRD §9's measured load-on-demand). Only one model sits in
+/// RAM, and escalations pay a load swap instead of a resident-model startup.
 ///
 /// The plugin streams `String` tokens and exposes no logprobs, so the PRD's
 /// requested token-logprob confidence can't be read from it without a fork. We
@@ -28,40 +33,44 @@ class ModelRunner {
 
   static final RegExp _confRe = RegExp(r'conf\s*=\s*(0(?:\.\d+)?|1(?:\.0)?)');
 
-  final llama.LlamaController _t1 = llama.LlamaController();
-  final llama.LlamaController _t2 = llama.LlamaController();
+  final llama.LlamaController _llama = llama.LlamaController();
 
-  /// Both tiers loaded at startup so escalation is pure Tier-2 inference
-  /// (no reload latency). Costs ~1.4GB resident RAM; PRD §9 opens this to a
-  /// measured load-on-demand fallback if a device OOMs.
+  /// Ensures both GGUFs are copied out of the APK into app storage. Model load
+  /// itself is deferred to the first query that needs a tier (see above).
   Future<void> load() async {
     final prepare = DeviceStateMonitor.instance.prepareModel;
-    final p1 = await prepare(_t1Model);
-    final p2 = await prepare(_t2Model);
-    await _t1.loadModel(
-        modelPath: p1, threads: _threads, contextSize: _contextSize, gpuLayers: _gpuLayers);
-    await _t2.loadModel(
-        modelPath: p2, threads: _threads, contextSize: _contextSize, gpuLayers: _gpuLayers);
+    await prepare(_t1Model);
+    await prepare(_t2Model);
   }
 
   Future<ModelResult> generate(Tier tier, String query,
       {void Function(String token)? onToken}) async {
-    final controller = tier == Tier.tier1 ? _t1 : _t2;
+    final modelName = tier == Tier.tier1 ? _t1Model : _t2Model;
     final messages = [
       if (tier == Tier.tier1)
         llama.ChatMessage(role: 'system', content: _confidenceSystemPrompt),
       llama.ChatMessage(role: 'user', content: query),
     ];
 
+    final path = await DeviceStateMonitor.instance.prepareModel(modelName);
+    await _llama.loadModel(
+        modelPath: path, threads: _threads, contextSize: _contextSize, gpuLayers: _gpuLayers);
+
     final buf = StringBuffer();
-    await for (final token in controller.generateChat(
-      messages: messages,
-      template: 'chatml',
-      maxTokens: _maxTokens,
-      temperature: 0.7,
-    )) {
-      buf.write(token);
-      onToken?.call(token);
+    try {
+      await for (final token in _llama.generateChat(
+        messages: messages,
+        template: 'chatml',
+        maxTokens: _maxTokens,
+        temperature: 0.7,
+      )) {
+        buf.write(token);
+        onToken?.call(token);
+      }
+    } finally {
+      // Free the native model before the next tier loads, or the swap hangs
+      // on the plugin's global isModelLoaded flag.
+      await _llama.dispose();
     }
 
     final raw = buf.toString().trim();
@@ -74,8 +83,7 @@ class ModelRunner {
   }
 
   void dispose() {
-    _t1.dispose();
-    _t2.dispose();
+    _llama.dispose();
   }
 
   double _parseConfidence(String raw) {

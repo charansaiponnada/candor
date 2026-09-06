@@ -53,11 +53,13 @@ Every query appends one JSON line to `<app-docs>/escalations.jsonl`
   the same single generation pass (no second inference). If parsing fails the
   confidence defaults to `0.5`. Weak proxy, accepted for this build, to be
   replaced by logprob-based confidence.
-- **Both models load at startup** (≈1.4 GB resident: 400 MB + 1 GB). Escalation is
-  therefore pure Tier-2 inference with no reload latency. Tradeoff: a device with
-  too little RAM should switch to *load-on-demand* (single controller, reload per
-  escalation) at the cost of escalation latency. Measured on the target device —
-  see below.
+- **Load-on-demand, one model at a time.** The plugin supports a single loaded
+  model per process (`isModelLoaded` is one global flag), so two resident models
+  are impossible without forking it. Each generation loads its tier, runs it, and
+  disposes it (PRD §9's load-on-demand fallback). Only one model sits in RAM
+  (≈0.5 GB or ≈1.1 GB), and every query pays a model load (~1–3 s) instead of a
+  resident-model startup. Escalations additionally pay Tier-1's pass +
+  swap-to-Tier-2.
 - **CPU-only inference** (`gpuLayers: 0`) for deterministic behavior across
   devices. The plugin supports Vulkan (`detectGpu().recommendedGpuLayers`); switch
   if Tier-1 latency is disappointing.
@@ -77,8 +79,9 @@ flutter build apk --debug
 flutter install
 ```
 
-First launch copies the bundled models into app storage (streaming, ~seconds),
-then loads both models — the splash screen shows "Loading on-device models…".
+First launch copies the bundled models into app storage (streaming, ~seconds);
+the splash shows "Preparing on-device models…". Tiers load on demand at first
+query.
 
 ## Pitch data (fill after device measurement)
 
