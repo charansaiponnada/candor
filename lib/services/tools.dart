@@ -51,7 +51,7 @@ class ToolDetector {
       r'^(?:open|go\s+to|visit)\s+(https?://)?([\w-]+(\.[\w-]+)+)(/[\w\-./%?=]*)?',
       caseSensitive: false);
 
-static final RegExp _emailRe = RegExp(
+  static final RegExp _emailRe = RegExp(
       r'^(?:email|mail|send\s+an?\s+email)(?:\s+(?:to\s+)?(?:the\s+)?(\w+))?'
       r'(?:\s+(?:about|that|saying)\s+(.+))?',
       caseSensitive: false);

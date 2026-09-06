@@ -32,6 +32,7 @@ android/…/MainActivity.kt  one MethodChannel "candor/device":
                            getThermalStatus (PowerManager, API 29+)
                            prepareModel (stream-copy bundled GGUF out of assets)
 test/router_test.dart      decision-table + log tests with stubbed runner/monitor
+test/tools_test.dart       tool intent-detector tests (30 tests total, all pass)
 ```
 
 ### Router decision table (PRD §6.4)
@@ -67,6 +68,8 @@ offline, no extra inference:
 - "open the camera / whatsapp / settings / …" → launches the matching app
   (package candidates per app, resolves the first installed one)
 - "set a timer for 10 minutes" → Clock's `ACTION_SET_TIMER` with `LENGTH`
+  (duration **alarms** — "set an alarm for 15 secs" — route here too; only
+   time-of-day alarms, "set an alarm for 7 AM", fall through to the model)
 - "text mom that I'll be late" → SMS draft (recipient + body)
 - "email the team about the demo" → mail draft
 - "open github.com" → browser (`ACTION_VIEW`)
@@ -76,7 +79,11 @@ Regex intent detection in `services/tools.dart`; execution via
 card instead of an answer bubble. Ordinary questions can't be mis-routed
 (each pattern requires a concrete target: an app name, a duration, a domain).
 Android `<queries>` visibility for https/sms/text/SET_TIMER is declared in the
-manifest.
+manifest. Samsung's timer activity refuses `ACTION_SET_TIMER` unless the
+caller holds `com.android.alarm.permission.SET_ALARM` (a `normal` permission),
+so the manifest declares both that legacy name and `android.permission.SET_ALARM`.
+If no app can handle an intent, the card shows "Couldn't do that" instead of a
+crypto error.
 
 ## Known limitations / decisions (PRD §9 asks to state these)
 
@@ -129,11 +136,12 @@ First launch copies the bundled models into app storage (streaming, ~seconds);
 the splash shows "Preparing on-device models…". Tiers load on demand at first
 query.
 
-## Pitch data (fill after device measurement)
+## Pitch data (measured on SM-E366B, Q4_K_M, CPU-only)
 
 | Path | Latency |
 |---|---|
-| Tier-1 only | _measure in Debug & Demo panel_ |
-| Escalated (Tier-1 → Tier-2) | _measure in Debug & Demo panel_ |
+| Tier-1 only | ≈ 4–7 s (e.g. 4.0 s, 6.7 s, 7.3 s on simple factual asks) |
+| Escalated (Tier-1 → Tier-2) | Tier-1 pass + model swap to the 1.5B (adds its load + pass); strictly device-dependent — read the live value per query in Debug & Demo |
 
+The Debug & Demo panel shows a running latency read for both paths.
 Offline proof: enable airplane mode, run again — the app keeps working.
