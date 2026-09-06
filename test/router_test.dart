@@ -91,13 +91,94 @@ void main() {
       expect(r.tier, FinalTier.tier1Constrained);
     });
 
-    test('confidence exactly at threshold (0.5) is NOT low -> Tier-1', () async {
+    test('confidence exactly at threshold (0.7) is NOT low -> Tier-1', () async {
       final r = await makeRouter(
         const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
-        confidence: 0.5,
+        confidence: 0.7,
       ).answer('q');
 
       expect(r.tier, FinalTier.tier1);
+    });
+
+    test('confidence just below threshold (0.69) escalates', () async {
+      final r = await makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.69,
+      ).answer('q');
+
+      expect(r.tier, FinalTier.tier2);
+    });
+
+    test('empty Tier-1 answer escalates even with high confidence', () async {
+      final routing = makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.99,
+      );
+      runner.resultBuilder = (tier) => tier == Tier.tier1
+          ? const ModelResult(text: '', confidence: 0.99)
+          : const ModelResult(text: 't2 answer', confidence: 0);
+
+      final r = await routing.answer('q');
+      expect(r.tier, FinalTier.tier2);
+      expect(runner.generations, [Tier.tier1, Tier.tier2]);
+    });
+
+    test('missing conf tag (0.0) escalates on a healthy device', () async {
+      final r = await makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.0,
+      ).answer('what can you do');
+
+      expect(r.tier, FinalTier.tier2);
+    });
+  });
+
+  group('Confidence tag parsing', () {
+    test('parses the strict two-line format and strips the tag', () {
+      final r = ModelRunner.cleanTaggedAnswer('conf:0.87\n12 is the answer.');
+      expect(r.$1, '12 is the answer.');
+      expect(r.$2, 0.87);
+    });
+
+    test('accepts case/format variants (Conf=, confidence=, <…>)', () {
+      expect(ModelRunner.cleanTaggedAnswer('Conf=0.99\nHello').$2, 0.99);
+      expect(
+          ModelRunner.cleanTaggedAnswer('Confidence=0.87\nHello').$2, 0.87);
+      expect(
+          ModelRunner.cleanTaggedAnswer('confidence=<0.95>\nHello').$2, 0.95);
+      expect(
+          ModelRunner.cleanTaggedAnswer('conf:<0.95>\nHello').$2, 0.95);
+    });
+
+    test('tag-only reply -> empty answer (empty gate escalates)', () {
+      final x = ModelRunner.cleanTaggedAnswer('Conf=<X>');
+      expect(x.$1, isEmpty);
+      expect(x.$2, 0.0); // "x" marker means cannot confirm
+      final n = ModelRunner.cleanTaggedAnswer('Conf=<0.99>');
+      expect(n.$1, isEmpty);
+      expect(n.$2, 0.99);
+    });
+
+    test('unparsable tag line -> text preserved (not mangled), 0.0', () {
+      final r = ModelRunner.cleanTaggedAnswer('Conf=<confusing>');
+      expect(r.$1, contains('Conf'));
+      expect(r.$2, 0.0);
+    });
+
+    test('missing tag -> whole text, 0.0 (can knock confidence below 0.7)',
+        () {
+      final r = ModelRunner.cleanTaggedAnswer(
+          'Dasara is celebrated with great fervour in Telangana.');
+      expect(r.$1, contains('Dasara'));
+      expect(r.$2, 0.0);
+    });
+
+    test('prose mentioning confidence mid-answer is not treated as a tag', () {
+      final r = ModelRunner.cleanTaggedAnswer(
+          'My confidence in this answer is 0.98 but here it goes.');
+      expect(r.$1, startsWith('My confidence'));
+      expect(r.$2, 0.0);
+      expect(r.$1, contains('here it goes'));
     });
   });
 
@@ -140,15 +221,17 @@ void main() {
 
 class _StubRunner extends ModelRunner {
   double confidence = 0.9;
+  ModelResult Function(Tier tier)? resultBuilder;
   final List<Tier> generations = [];
 
   @override
   Future<ModelResult> generate(Tier tier, String query,
       {void Function(String token)? onToken}) async {
     generations.add(tier);
-    return tier == Tier.tier1
-        ? ModelResult(text: 't1 answer', confidence: confidence)
-        : const ModelResult(text: 't2 answer', confidence: 0);
+    return resultBuilder?.call(tier) ??
+        (tier == Tier.tier1
+            ? ModelResult(text: 't1 answer', confidence: confidence)
+            : const ModelResult(text: 't2 answer', confidence: 0));
   }
 }
 

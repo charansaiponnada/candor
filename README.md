@@ -18,11 +18,12 @@ lib/
   services/
     device_state.dart      native MethodChannel bridge (battery, thermal, model-file prep)
                            + real-vs-simulated readout + demo override
-    model_runner.dart      llama_flutter_android wrapper, one LlamaController per tier,
-                           single-pass confidence parsing
+    model_runner.dart      llama_flutter_android wrapper, single controller,
+                           resident-tier caching + single-pass confidence parsing
     router.dart            decision table + EscalationLog (JSON-lines file)
   screens/
-    chat_screen.dart       chat UI: tier badge Chip, constrained Card banner
+    chat_screen.dart       Claude-style chat: borderless answers, quiet
+                           `● Tier-1 · 12.4s · conf 0.95` attribution, typing dots
     debug_panel.dart       live device readout, latency pitch data, simulate toggle
 android/…/MainActivity.kt  one MethodChannel "candor/device":
                            getBatteryPercent (BatteryManager)
@@ -37,9 +38,9 @@ Per query: run Tier-1 → read device state → decide.
 
 | Tier-1 confidence | Device state (battery ≥ 20% AND thermal < MODERATE) | Result |
 |---|---|---|
-| high (≥ 0.5) | any | Tier-1 answer, badge `Tier-1` |
-| low (< 0.5) | OK | run Tier-2, badge `Tier-2` |
-| low (< 0.5) | constrained | Tier-1 answer anyway, badge `Tier-1 (constrained)` + degradation note |
+| high (≥ 0.7) | any | Tier-1 answer, badge `Tier-1` |
+| low (< 0.7, or missing tag → 0.0, or empty answer) | OK | run Tier-2, badge `Tier-2` |
+| low (< 0.7…) | constrained | Tier-1 answer anyway, badge `Tier-1 (constrained)` + degradation note |
 
 Every query appends one JSON line to `<app-docs>/escalations.jsonl`
 (`EscalationRecord`), the input for the future self-improvement research.
@@ -49,20 +50,26 @@ Every query appends one JSON line to `<app-docs>/escalations.jsonl`
 - **Confidence proxy is self-assessed, not logprob-based.** The `llama_flutter_android`
   plugin streams `String` tokens and exposes no token logprobs, so the PRD's
   avg/min-logprob confidence is impossible without forking the plugin. Instead,
-  Tier-1 is prompted to open its reply with a `conf=<0.00-1.00>` line, parsed from
-  the same single generation pass (no second inference). If parsing fails the
-  confidence defaults to `0.5`. Weak proxy, accepted for this build, to be
-  replaced by logprob-based confidence.
-- **Load-on-demand, one model at a time.** The plugin supports a single loaded
-  model per process (`isModelLoaded` is one global flag), so two resident models
-  are impossible without forking it. Each generation loads its tier, runs it, and
-  disposes it (PRD §9's load-on-demand fallback). Only one model sits in RAM
-  (≈0.5 GB or ≈1.1 GB), and every query pays a model load (~1–3 s) instead of a
-  resident-model startup. Escalations additionally pay Tier-1's pass +
+  Tier-1 is prompted to open its reply with a `conf:<X>` line, parsed from the
+  same single generation pass (no second inference). The parser accepts
+  `conf:`/`Conf=`/`confidence=<X>` case- and format-variants; the tag line is
+  always stripped from the displayed answer.
+- **Missing tag = low confidence.** Measured on-device (Sep 2026): the 0.5B
+  model reports 0.95–0.99 even when it confabulates, but *omits* the tag (or
+  writes `Conf=<X>`) when it can't answer. An unparsable/missing tag therefore
+  parses to **0.0** — "can't confirm ⇒ defer" — and raises the threshold above
+  which Tier-1 is trusted to **0.7**. Forced as a last gate: an empty Tier-1
+  answer escalates regardless of reported confidence.
+- **Load-on-demand, one model at a time, last tier cached.** The plugin supports
+  a single loaded model per process (`isModelLoaded` is one global flag), so two
+  resident models are impossible without forking it. The last loaded tier stays
+  resident for reuse (consecutive same-tier queries skip the ~1–3 s load) and is
+  disposed only on a tier switch (PRD §9's load-on-demand fallback). Only one
+  model sits in RAM (≈0.5 GB or ≈1.1 GB). Escalations pay Tier-1's pass +
   swap-to-Tier-2.
 - **CPU-only inference** (`gpuLayers: 0`) for deterministic behavior across
-  devices. The plugin supports Vulkan (`detectGpu().recommendedGpuLayers`); switch
-  if Tier-1 latency is disappointing.
+  devices. 8 threads, 256 max tokens. The plugin supports Vulkan
+  (`detectGpu().recommendedGpuLayers`); switch if Tier-1 latency is disappointing.
 - Chat history is in-memory only; only the escalation log persists.
 - No accuracy evaluation, device matrix, or fine-tuning loop — explicitly out of
   scope for this build (PRD §3, §2.1).

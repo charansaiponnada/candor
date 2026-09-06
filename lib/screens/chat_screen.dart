@@ -5,6 +5,14 @@ import '../services/device_state.dart';
 import '../services/router.dart';
 import 'debug_panel.dart';
 
+/// Suggested first prompts. Chosen to demo both paths: the third typically
+/// trips Tier-1's low/missing confidence and escalates to Tier-2.
+const _suggestions = [
+  'What is the square root of 144?',
+  'Explain recursion to a 12-year-old',
+  "What's the difference between a LAN and a WAN?",
+];
+
 class ChatScreen extends StatefulWidget {
   final Router router;
   final DeviceStateMonitor monitor;
@@ -28,8 +36,8 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  Future<void> _send() async {
-    final query = _input.text.trim();
+  Future<void> _send([String? preset]) async {
+    final query = (preset ?? _input.text).trim();
     if (query.isEmpty || _sending) return;
     _input.clear();
 
@@ -43,13 +51,14 @@ class _ChatScreenState extends State<ChatScreen> {
     final draft = _messages.last;
     try {
       final result =
-          await widget.router.answer(query, onToken: (token) => _appendToken(draft, token));
+          await widget.router.answer(query, onToken: (t) => _appendToken(draft, t));
       setState(() {
         draft
           ..streaming = false
           ..text = result.text
           ..tier = result.tier
           ..note = result.note
+          ..confidence = result.confidence
           ..latencyMs = result.latencyMs;
         _sending = false;
       });
@@ -88,13 +97,49 @@ class _ChatScreenState extends State<ChatScreen> {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Candor'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        titleSpacing: 20,
+        title: Row(
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: cs.primary,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text('C',
+                  style: TextStyle(
+                      color: cs.onPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Candor',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+                Text('Fully on-device · works offline',
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(color: cs.onSurfaceVariant)),
+              ],
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.tune),
             tooltip: 'Debug & demo controls',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => DebugPanel(monitor: widget.monitor, router: widget.router),
+              builder: (_) =>
+                  DebugPanel(monitor: widget.monitor, router: widget.router),
             )),
           ),
         ],
@@ -104,19 +149,15 @@ class _ChatScreenState extends State<ChatScreen> {
           _SimulatedBanner(monitor: widget.monitor),
           Expanded(
             child: _messages.isEmpty
-                ? _EmptyState(cs: cs)
+                ? _EmptyState(onSuggestion: _send)
                 : ListView.builder(
                     controller: _scroll,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                     itemCount: _messages.length,
-                    itemBuilder: (_, i) => _MessageBubble(message: _messages[i]),
+                    itemBuilder: (_, i) => _ChatRow(message: _messages[i]),
                   ),
           ),
-          _Composer(
-            controller: _input,
-            sending: _sending,
-            onSend: _send,
-          ),
+          _Composer(controller: _input, sending: _sending, onSend: _send),
         ],
       ),
     );
@@ -133,26 +174,25 @@ class _SimulatedBanner extends StatelessWidget {
     return ValueListenableBuilder<bool>(
       valueListenable: monitor.simulating,
       builder: (_, simulated, _) => simulated
-          ? Material(
+          ? Container(
               color: cs.tertiaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                child: Row(
-                  children: [
-                    Icon(Icons.warning_amber_rounded, color: cs.onTertiaryContainer),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'SIMULATED CONSTRAINED MODE — the router is seeing fake '
-                        'battery/thermal values from the demo toggle.',
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelLarge
-                            ?.copyWith(color: cs.onTertiaryContainer),
-                      ),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+              child: Row(
+                children: [
+                  Icon(Icons.science_outlined,
+                      size: 14, color: cs.onTertiaryContainer),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Simulated constrained mode from the debug panel.',
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(color: cs.onTertiaryContainer),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             )
           : const SizedBox.shrink(),
@@ -161,142 +201,213 @@ class _SimulatedBanner extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  final ColorScheme cs;
-  const _EmptyState({required this.cs});
+  final void Function(String) onSuggestion;
+  const _EmptyState({required this.onSuggestion});
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final t = Theme.of(context).textTheme;
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Text(
-          'Ask anything. Candor runs entirely on this device — two models, and '
-          'it will tell you which one answered and why.',
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: cs.onSurfaceVariant),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Candor',
+                style: t.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: cs.primary,
+                    letterSpacing: -0.5)),
+            const SizedBox(height: 8),
+            Text(
+              'A private assistant that runs entirely on your phone.\n'
+              'It answers with two on-device models — and tells you which one did.',
+              textAlign: TextAlign.center,
+              style: t.bodyMedium?.copyWith(color: cs.onSurfaceVariant, height: 1.4),
+            ),
+            const SizedBox(height: 28),
+            for (final s in _suggestions) ...[
+              _Suggestion(prompt: s, onTap: () => onSuggestion(s)),
+              const SizedBox(height: 10),
+            ],
+          ],
         ),
       ),
     );
   }
 }
 
-class _MessageBubble extends StatelessWidget {
-  final ChatMessage message;
-  const _MessageBubble({required this.message});
+class _Suggestion extends StatelessWidget {
+  final String prompt;
+  final VoidCallback onTap;
+  const _Suggestion({required this.prompt, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final align = message.fromUser ? MainAxisAlignment.end : MainAxisAlignment.start;
+    return Material(
+      color: cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Text(prompt,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurface)),
+        ),
+      ),
+    );
+  }
+}
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: message.fromUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: align,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (!message.fromUser) ...[
-                if (message.tier != null) _TierChip(tier: message.tier!, cs: cs),
-                const SizedBox(width: 8),
-              ],
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: message.fromUser ? cs.primary : cs.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    message.text.isEmpty ? '…' : message.text,
-                    style: TextStyle(
-                      color: message.fromUser ? cs.onPrimary : cs.onSurface,
-                      fontSize: 15,
-                      height: 1.35,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+class _ChatRow extends StatelessWidget {
+  final ChatMessage message;
+  const _ChatRow({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    if (message.fromUser) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 18, left: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: cs.primaryContainer,
+            borderRadius: BorderRadius.circular(20),
           ),
-          if (!message.fromUser && message.tier != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                message.streaming
-                    ? '…'
-                    : '${message.tier!.label}  •  ${(message.latencyMs ?? 0) / 1000}s',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+          child: Text(message.text,
+              style: TextStyle(color: cs.onPrimaryContainer, height: 1.35)),
+        ),
+      );
+    }
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (message.streaming)
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(18),
               ),
-            ),
-          if (!message.fromUser && message.note != null)
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [const _TypingDots(), const SizedBox(width: 10)],
+              ),
+            )
+          else if (message.text.isNotEmpty)
+            Text(message.text,
+                style: TextStyle(
+                    fontSize: 15, height: 1.5, color: cs.onSurface)),
+          if (message.tier != null && !message.streaming)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Card(
-                  color: cs.errorContainer,
-                  margin: EdgeInsets.zero,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.thermostat, size: 18, color: cs.onErrorContainer),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              message.note!,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: cs.onErrorContainer),
-                            ),
-                          ),
-                        ],
+              padding: const EdgeInsets.only(top: 6, bottom: 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: _tierColor(message.tier!, cs),
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${message.tier!.label}'
+                        '  ·  ${(message.latencyMs ?? 0) / 1000} s'
+                        '${_conf(message.confidence)}',
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(color: cs.onSurfaceVariant),
+                      ),
+                    ],
                   ),
-                ),
+                  if (message.note != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(message.note!,
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(color: cs.onSurfaceVariant)),
+                    ),
+                ],
               ),
             ),
         ],
       ),
     );
   }
+
+  static String _conf(double? c) =>
+      (c == null || c <= 0) ? '' : '  ·  conf ${c.toStringAsFixed(2)}';
 }
 
-class _TierChip extends StatelessWidget {
-  final FinalTier tier;
-  final ColorScheme cs;
-  const _TierChip({required this.tier, required this.cs});
+Color _tierColor(FinalTier tier, ColorScheme cs) => switch (tier) {
+      FinalTier.tier1 => cs.secondary,
+      FinalTier.tier2 => cs.primary,
+      FinalTier.tier1Constrained => cs.error,
+    };
+
+class _TypingDots extends StatefulWidget {
+  const _TypingDots();
+
+  @override
+  State<_TypingDots> createState() => _TypingDotsState();
+}
+
+class _TypingDotsState extends State<_TypingDots>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+      ..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final bg = switch (tier) {
-      FinalTier.tier1 => cs.secondaryContainer,
-      FinalTier.tier2 => cs.primaryContainer,
-      FinalTier.tier1Constrained => cs.errorContainer,
-    };
-    final fg = switch (tier) {
-      FinalTier.tier1 => cs.onSecondaryContainer,
-      FinalTier.tier2 => cs.onPrimaryContainer,
-      FinalTier.tier1Constrained => cs.onErrorContainer,
-    };
-    return Chip(
-      label: Text(tier.label),
-      labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
-            color: fg,
-            fontWeight: FontWeight.w600,
-          ),
-      backgroundColor: bg,
-      side: BorderSide.none,
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    final color = Theme.of(context).colorScheme.primary;
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, _) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < 3; i++) ...[
+            if (i > 0) const SizedBox(width: 4),
+            Opacity(
+              opacity: 0.25 + 0.75 * (((_c.value * 3 - i) % 1.0).clamp(0.0, 1.0)),
+              child: Container(
+                width: 7,
+                height: 7,
+                decoration:
+                    BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -305,46 +416,57 @@ class _Composer extends StatelessWidget {
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onSend;
-  const _Composer({required this.controller, required this.sending, required this.onSend});
+  const _Composer(
+      {required this.controller, required this.sending, required this.onSend});
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                minLines: 1,
-                maxLines: 4,
-                textInputAction: TextInputAction.newline,
-                decoration: const InputDecoration(
-                  hintText: 'Ask Candor a question…',
-                  filled: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24))),
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  minLines: 1,
+                  maxLines: 4,
+                  textInputAction: TextInputAction.send,
+                  style: const TextStyle(fontSize: 15),
+                  decoration: const InputDecoration(
+                    hintText: 'Message Candor',
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  onSubmitted: (_) => onSend(),
                 ),
-                onSubmitted: (_) => onSend(),
               ),
-            ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: sending ? null : onSend,
-              style: FilledButton.styleFrom(
-                shape: const CircleBorder(),
-                padding: const EdgeInsets.all(16),
+              AnimatedBuilder(
+                animation: controller,
+                builder: (_, _) => IconButton.filled(
+                  onPressed: controller.text.trim().isEmpty || sending
+                      ? null
+                      : onSend,
+                  icon: sending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.arrow_upward_rounded),
+                  tooltip: 'Send',
+                ),
               ),
-              child: sending
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

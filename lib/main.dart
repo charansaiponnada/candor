@@ -42,7 +42,8 @@ class CandorApp extends StatelessWidget {
       theme: _theme(Brightness.light),
       darkTheme: _theme(Brightness.dark),
       themeMode: ThemeMode.system,
-      // "Candor" = trust-signaling teal seed; full M3 role set generated from it.
+      // "Candor" = warm clay seed (blind-demo colour, feels honest + human);
+      // full M3 role set generated from it.
       home: FutureBuilder<AppServices>(
         future: _services,
         builder: (context, snap) {
@@ -58,7 +59,7 @@ class CandorApp extends StatelessWidget {
 ThemeData _theme(Brightness brightness) => ThemeData(
       useMaterial3: true, // required on both themes, not just one
       colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF00696B), // deep teal — trustworthy, distinctive
+        seedColor: const Color(0xFFA64B2A), // warm clay, not corporate teal
         brightness: brightness,
       ),
     );

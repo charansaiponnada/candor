@@ -6,19 +6,23 @@ import 'device_state.dart';
 /// Wraps the llama.cpp Flutter plugin.
 ///
 /// The plugin supports exactly one loaded model at a time (`isModelLoaded` is
-/// a single global flag), so each generation loads the requested tier, runs it,
-/// and disposes it (PRD §9's measured load-on-demand). Only one model sits in
-/// RAM, and escalations pay a load swap instead of a resident-model startup.
+/// a single global flag), so models are loaded on demand (PRD §9). The last
+/// loaded tier stays resident so consecutive same-tier queries skip the model
+/// load; switching tiers disposes and reloads.
 ///
 /// The plugin streams `String` tokens and exposes no logprobs, so the PRD's
 /// requested token-logprob confidence can't be read from it without a fork. We
-/// instead ask Tier-1 to open its reply with a self-assessed confidence tag
-/// (`conf=<0.00-1.00>`) and parse it from the same single generation pass —
-/// PRD §9 accepts a proxy here and this one is visible for the demo.
+/// instead ask Tier-1 to open its reply with a `conf:<X>` line and parse it
+/// from the same single generation pass (PRD §9 accepts a proxy).
+///
+/// Calibration (measured on-device 2026-09-06): Qwen2.5-0.5B reports 0.95–0.99
+/// even when wrong, but *omits* the tag or writes variants (`Conf=`,
+/// `confidence=`, `Conf=<X>`) when it can't answer. The router therefore treats
+/// a missing/unparsable tag as low (0.0) confidence — "can't confirm ⇒ defer".
 class ModelRunner {
-  static const int _threads = 4;
+  static const int _threads = 8;
   static const int _contextSize = 2048;
-  static const int _maxTokens = 512;
+  static const int _maxTokens = 256;
   // CPU-only for deterministic behavior across devices.
   // ponytail: switch to detectGpu().recommendedGpuLayers per-device if slow.
   static const int _gpuLayers = 0;
@@ -26,17 +30,22 @@ class ModelRunner {
   static const String _t1Model = 'qwen2.5-0.5b-instruct-q4_k_m.gguf';
   static const String _t2Model = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
 
+  // First line must be the tag: conf:0.87 (variants handled by [_tagRe]).
   static const String _confidenceSystemPrompt =
-      'You are a helpful assistant. Begin your reply with a single line '
-      '"conf=<X>" where X is a number from 0.00 to 1.00 rating your own '
-      'confidence in the answer, then write the answer.';
+      'You are a helpful assistant. Reply in exactly two lines. Line 1 is '
+      '"conf:<X>" where X is a number from 0.00 to 1.00 giving your honest '
+      'confidence in your answer. Line 2 is your answer.';
 
-  static final RegExp _confRe = RegExp(r'conf\s*=\s*(0(?:\.\d+)?|1(?:\.0)?)');
+  static final RegExp _tagRe = RegExp(
+      r'^\s*conf(?:idence)?\s*[:=]?\s*<?\s*([0-9]+(?:\.[0-9]+)?|x)?\s*>?\s*$',
+      multiLine: true,
+      caseSensitive: false);
 
   final llama.LlamaController _llama = llama.LlamaController();
+  Tier? _residentTier;
 
-  /// Ensures both GGUFs are copied out of the APK into app storage. Model load
-  /// itself is deferred to the first query that needs a tier (see above).
+  /// Ensures both GGUFs are copied out of the APK into app storage. Model
+  /// load itself is deferred to the first query that needs a tier.
   Future<void> load() async {
     final prepare = DeviceStateMonitor.instance.prepareModel;
     await prepare(_t1Model);
@@ -52,9 +61,16 @@ class ModelRunner {
       llama.ChatMessage(role: 'user', content: query),
     ];
 
-    final path = await DeviceStateMonitor.instance.prepareModel(modelName);
-    await _llama.loadModel(
-        modelPath: path, threads: _threads, contextSize: _contextSize, gpuLayers: _gpuLayers);
+    if (_residentTier != tier) {
+      if (_residentTier != null) await _llama.dispose();
+      final path = await DeviceStateMonitor.instance.prepareModel(modelName);
+      await _llama.loadModel(
+          modelPath: path,
+          threads: _threads,
+          contextSize: _contextSize,
+          gpuLayers: _gpuLayers);
+      _residentTier = tier;
+    }
 
     final buf = StringBuffer();
     try {
@@ -67,39 +83,50 @@ class ModelRunner {
         buf.write(token);
         onToken?.call(token);
       }
-    } finally {
-      // Free the native model before the next tier loads, or the swap hangs
-      // on the plugin's global isModelLoaded flag.
+    } catch (_) {
+      // Generation failed mid-stream: release the model so the next call
+      // starts from a clean slate.
       await _llama.dispose();
+      _residentTier = null;
+      rethrow;
     }
 
-    final raw = buf.toString().trim();
-    final isTier1 = tier == Tier.tier1;
-    final confidence = isTier1 ? _parseConfidence(raw) : 0.0;
+    final cleaned = cleanTaggedAnswer(buf.toString());
     return ModelResult(
-      text: isTier1 ? _stripConfidenceTag(raw) : raw,
-      confidence: confidence,
+      text: cleaned.$1,
+      confidence: tier == Tier.tier1 ? cleaned.$2 : 0.0,
     );
   }
 
   void dispose() {
     _llama.dispose();
+    _residentTier = null;
   }
 
-  double _parseConfidence(String raw) {
-    final m = _confRe.firstMatch(raw);
-    final v = m == null ? null : double.tryParse(m.group(1)!);
-    if (v == null) {
-      // ponytail: unparsed tag -> neutral 0.5, so the router escalates when
-      // the device allows it (good for demos; still an honest known limitation).
-      return 0.5;
+  /// Strips the leading `conf:…` line, returning `(answer, confidence)` with
+  /// 0.0 when the tag is missing/unparsable (router reads that as "cannot
+  /// confirm", per on-device calibration).
+  static (String, double) cleanTaggedAnswer(String raw) {
+    final lines = raw.trim().split('\n');
+    if (lines.length > 1) {
+      final m = _tagRe.firstMatch(lines.first);
+      if (m != null) {
+        return (lines.skip(1).join('\n').trim(), _tagValue(m));
+      }
     }
-    return v.clamp(0.0, 1.0).toDouble();
+    // Single-line partial compliance (`conf=0.9 The answer is…`) — only when
+    // the tag is the very first thing, so prose like "My confidence is 0.98…"
+    // is not mangled.
+    final m = _tagRe.firstMatch(raw);
+    if (m != null && m.start == 0) {
+      return (raw.substring(m.end).trimLeft(), _tagValue(m));
+    }
+    return (raw.trim(), 0.0);
   }
 
-  String _stripConfidenceTag(String raw) {
-    final m = _confRe.firstMatch(raw);
-    if (m == null || m.start > 40) return raw;
-    return raw.substring(m.end).trimLeft();
+  static double _tagValue(RegExpMatch m) {
+    final s = m.group(1);
+    if (s == null || s.toLowerCase() == 'x') return 0.0;
+    return double.tryParse(s)?.clamp(0.0, 1.0).toDouble() ?? 0.0;
   }
 }

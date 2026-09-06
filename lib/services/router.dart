@@ -29,8 +29,13 @@ class EscalationLog {
 /// 2. read device state
 /// 3. high confidence -> Tier-1; low + device OK -> Tier-2;
 ///    low + constrained device -> Tier-1 with degradation note
+///
+/// "Low confidence" means a parsed `conf:` below [confidenceThreshold], a
+/// missing/unparsable tag, or an empty answer. Calibration (2026-09-06):
+/// Qwen2.5-0.5B self-reports 0.95–0.99 even when wrong but omits the tag when
+/// unsure, so a missing tag counts as low.
 class Router {
-  static const double confidenceThreshold = 0.5;
+  static const double confidenceThreshold = 0.7;
 
   final ModelRunner runner;
   final DeviceStateMonitor monitor;
@@ -53,7 +58,8 @@ class Router {
     // on escalation if that "draft-then-replace" effect is wanted in the demo.
     final t1 = await runner.generate(Tier.tier1, query);
     final device = await monitor.read();
-    final lowConfidence = t1.confidence < confidenceThreshold;
+    final lowConfidence = t1.confidence < confidenceThreshold ||
+        t1.text.trim().isEmpty;
     final canEscalate = device.allowsEscalation;
 
     final bool escalated;

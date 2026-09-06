@@ -36,6 +36,7 @@ class ChatMessage {
   FinalTier? tier;
   String? note; // degradation note, only when constrained
   double? latencyMs;
+  double? confidence; // Tier-1 self-reported, only when meaningful
   bool streaming;
 
   ChatMessage({
@@ -44,6 +45,7 @@ class ChatMessage {
     this.tier,
     this.note,
     this.latencyMs,
+    this.confidence,
     this.streaming = false,
   });
 }
