@@ -3,14 +3,17 @@ import 'package:flutter/material.dart' hide Router;
 import '../models.dart';
 import '../services/device_state.dart';
 import '../services/router.dart';
+import '../services/tools.dart';
 import 'debug_panel.dart';
 
 /// Suggested first prompts. Chosen to demo both paths: the third typically
-/// trips Tier-1's low/missing confidence and escalates to Tier-2.
+/// trips Tier-1's low/missing confidence and escalates to Tier-2; the last
+/// runs a tool action instead of a model pass.
 const _suggestions = [
   'What is the square root of 144?',
   'Explain recursion to a 12-year-old',
   "What's the difference between a LAN and a WAN?",
+  'Set a timer for 10 minutes',
 ];
 
 class ChatScreen extends StatefulWidget {
@@ -49,6 +52,24 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
 
     final draft = _messages.last;
+
+    // Tool context (PRD §6.7): a concrete action ask (open app, timer, SMS,
+    // email, website) is executed on-device instead of a model pass.
+    final tool = _detector.detect(query);
+    if (tool != null) {
+      draft.toolKind = tool.kind;
+      final failure = await _executor.run(tool);
+      if (!mounted) return;
+      setState(() {
+        draft
+          ..streaming = false
+          ..text = failure ?? tool.label;
+        _sending = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: true));
+      return;
+    }
+
     try {
       final result =
           await widget.router.answer(query, onToken: (t) => _appendToken(draft, t));
@@ -78,6 +99,9 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => draft.text += token);
     _scrollToBottom();
   }
+
+  static const _detector = ToolDetector();
+  static const _executor = ToolExecutor();
 
   void _scrollToBottom({bool animated = false}) {
     if (!_scroll.hasClients) return;
@@ -308,6 +332,31 @@ class _ChatRow extends StatelessWidget {
             Text(message.text,
                 style: TextStyle(
                     fontSize: 15, height: 1.5, color: cs.onSurface)),
+          if (message.toolKind != null && !message.streaming)
+            Container(
+              margin: const EdgeInsets.only(top: 8, bottom: 18),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: cs.tertiaryContainer,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(_toolIcon(message.toolKind!),
+                      size: 18, color: cs.onTertiaryContainer),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(message.text,
+                        style: TextStyle(
+                            fontSize: 15,
+                            color: cs.onTertiaryContainer,
+                            height: 1.35)),
+                  ),
+                ],
+              ),
+            ),
           if (message.tier != null && !message.streaming)
             Padding(
               padding: const EdgeInsets.only(top: 6, bottom: 18),
@@ -361,6 +410,14 @@ Color _tierColor(FinalTier tier, ColorScheme cs) => switch (tier) {
       FinalTier.tier1 => cs.secondary,
       FinalTier.tier2 => cs.primary,
       FinalTier.tier1Constrained => cs.error,
+    };
+
+IconData _toolIcon(ToolKind kind) => switch (kind) {
+      ToolKind.launchApp => Icons.open_in_new_rounded,
+      ToolKind.setTimer => Icons.timer_rounded,
+      ToolKind.sms => Icons.sms_rounded,
+      ToolKind.email => Icons.mail_rounded,
+      ToolKind.website => Icons.public_rounded,
     };
 
 class _TypingDots extends StatefulWidget {

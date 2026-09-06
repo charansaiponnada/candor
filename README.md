@@ -21,6 +21,8 @@ lib/
     model_runner.dart      llama_flutter_android wrapper, single controller,
                            resident-tier caching + single-pass confidence parsing
     router.dart            decision table + EscalationLog (JSON-lines file)
+    tools.dart             tool context: regex intent detector + intent executor
+                           (open app, set timer, SMS/email draft, open website)
   screens/
     chat_screen.dart       Claude-style chat: borderless answers, quiet
                            `● Tier-1 · 12.4s · conf 0.95` attribution, typing dots
@@ -56,6 +58,25 @@ kept the Tier-1 answer." — a failure never degrades into a canned apology.
 
 Every query appends one JSON line to `<app-docs>/escalations.jsonl`
 (`EscalationRecord`), the input for the future self-improvement research.
+
+## Tool context (beyond a chatbot)
+
+Action asks are executed on-device **before** any model pass — deterministic,
+offline, no extra inference:
+
+- "open the camera / whatsapp / settings / …" → launches the matching app
+  (package candidates per app, resolves the first installed one)
+- "set a timer for 10 minutes" → Clock's `ACTION_SET_TIMER` with `LENGTH`
+- "text mom that I'll be late" → SMS draft (recipient + body)
+- "email the team about the demo" → mail draft
+- "open github.com" → browser (`ACTION_VIEW`)
+
+Regex intent detection in `services/tools.dart`; execution via
+`android_intent_plus` platform intents. A tool run renders a distinct action
+card instead of an answer bubble. Ordinary questions can't be mis-routed
+(each pattern requires a concrete target: an app name, a duration, a domain).
+Android `<queries>` visibility for https/sms/text/SET_TIMER is declared in the
+manifest.
 
 ## Known limitations / decisions (PRD §9 asks to state these)
 

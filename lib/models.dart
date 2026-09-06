@@ -1,6 +1,9 @@
 /// Shared data model: tiers, device signals, chat messages, escalation log.
 library;
 
+/// On-device actions a tool query maps to (PRD §6.7 tool context).
+enum ToolKind { launchApp, setTimer, sms, email, website }
+
 enum Tier { tier1, tier2 }
 
 /// Maps [PowerManager.getCurrentThermalStatus] (see DeviceStateMonitor).
@@ -37,6 +40,7 @@ class ChatMessage {
   String? note; // degradation note, only when constrained
   double? latencyMs;
   double? confidence; // Tier-1 self-reported, only when meaningful
+  ToolKind? toolKind; // set when the message was an executed tool action
   bool streaming;
 
   ChatMessage({
@@ -46,6 +50,7 @@ class ChatMessage {
     this.note,
     this.latencyMs,
     this.confidence,
+    this.toolKind,
     this.streaming = false,
   });
 }
