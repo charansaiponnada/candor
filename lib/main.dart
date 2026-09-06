@@ -4,21 +4,27 @@ import 'screens/chat_screen.dart';
 import 'services/device_state.dart';
 import 'services/model_runner.dart';
 import 'services/router.dart';
+import 'services/stores.dart';
 
 /// Everything the app needs wired once (first launch copies bundled GGUFs into
 /// app storage; tiers load on demand at first query — see ModelRunner).
 class AppServices {
   final Router router;
   final DeviceStateMonitor monitor;
+  final ChatStore chatStore;
+  final SettingsStore settingsStore;
 
-  AppServices._(this.router, this.monitor);
+  AppServices._(this.router, this.monitor, this.chatStore, this.settingsStore);
 
   static Future<AppServices> create() async {
     final monitor = DeviceStateMonitor.instance;
+    final settings = await SettingsStore.create();
     final runner = ModelRunner();
     await runner.load();
     final log = await EscalationLog.create();
-    return AppServices._(Router(runner, monitor, log), monitor);
+    final chatStore = await ChatStore.create();
+    return AppServices._(
+        Router(runner, monitor, log), monitor, chatStore, settings);
   }
 }
 
@@ -49,7 +55,11 @@ class CandorApp extends StatelessWidget {
         builder: (context, snap) {
           if (snap.hasError) return _StartupView(error: '${snap.error}');
           if (!snap.hasData) return const _StartupView();
-          return ChatScreen(router: snap.data!.router, monitor: snap.data!.monitor);
+          return ChatScreen(
+            router: snap.data!.router,
+            monitor: snap.data!.monitor,
+            chatStore: snap.data!.chatStore,
+          );
         },
       ),
     );

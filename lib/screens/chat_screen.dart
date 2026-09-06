@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide Router;
 
 import '../models.dart';
 import '../services/device_state.dart';
 import '../services/router.dart';
+import '../services/stores.dart';
 import '../services/tools.dart';
+import 'conversations_screen.dart';
 import 'debug_panel.dart';
 
 /// Suggested first prompts. Chosen to demo both paths: the third typically
@@ -19,8 +23,13 @@ const _suggestions = [
 class ChatScreen extends StatefulWidget {
   final Router router;
   final DeviceStateMonitor monitor;
+  final ChatStore chatStore;
 
-  const ChatScreen({super.key, required this.router, required this.monitor});
+  const ChatScreen(
+      {super.key,
+      required this.router,
+      required this.monitor,
+      required this.chatStore});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -29,14 +38,62 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  final List<ChatMessage> _messages = [];
+  late Conversation _active;
+  late List<ChatMessage> _messages;
   bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Resume the most recent conversation, else start a fresh thread.
+    _active = widget.chatStore.conversations.isEmpty
+        ? Conversation.newThread()
+        : widget.chatStore.conversations.last;
+    _messages = _active.messages;
+  }
 
   @override
   void dispose() {
     _input.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  Future<void> _openConversations() async {
+    final picked = await Navigator.of(context).push<Conversation>(
+      MaterialPageRoute(
+          builder: (_) => ConversationsScreen(store: widget.chatStore)),
+    );
+    if (picked != null && mounted && picked.id != _active.id) {
+      setState(() {
+        _active = picked;
+        _messages = picked.messages;
+        _sending = false;
+        _input.clear();
+      });
+      if (_messages.isNotEmpty) _scrollToBottom();
+    }
+  }
+
+  /// Persist the thread: derive a title from the first user message and make
+  /// sure the conversation lives in the store before saving.
+  void _persist() {
+    if (_active.title.isEmpty) {
+      for (final m in _messages) {
+        if (m.fromUser && m.text.trim().isNotEmpty) {
+          _active.title = m.text.trim().replaceAll('\n', ' ');
+          if (_active.title.length > 40) {
+            _active.title = '${_active.title.substring(0, 40)}…';
+          }
+          break;
+        }
+      }
+    }
+    _active.updatedAt = DateTime.now().millisecondsSinceEpoch;
+    if (!widget.chatStore.conversations.any((c) => c.id == _active.id)) {
+      widget.chatStore.conversations.add(_active);
+    }
+    unawaited(widget.chatStore.save().catchError((_) {}));
   }
 
   Future<void> _send([String? preset]) async {
@@ -66,6 +123,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ..text = failure ?? tool.label;
         _sending = false;
       });
+      _persist();
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: true));
       return;
     }
@@ -83,6 +141,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ..latencyMs = result.latencyMs;
         _sending = false;
       });
+      _persist();
     } catch (_) {
       setState(() {
         draft
@@ -90,6 +149,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ..text = 'Something went wrong running the model.';
         _sending = false;
       });
+      _persist();
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: true));
   }
@@ -158,6 +218,11 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            tooltip: 'Chat history',
+            onPressed: _openConversations,
+          ),
           IconButton(
             icon: const Icon(Icons.tune),
             tooltip: 'Debug & demo controls',
