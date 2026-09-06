@@ -123,13 +123,80 @@ void main() {
       expect(runner.generations, [Tier.tier1, Tier.tier2]);
     });
 
-    test('missing conf tag (0.0) escalates on a healthy device', () async {
+    test('missing conf tag (0.0) + substantive answer is trusted -> Tier-1',
+        () async {
       final r = await makeRouter(
         const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
         confidence: 0.0,
-      ).answer('what can you do');
+      ).answer('write me a haiku about rain');
 
+      expect(r.tier, FinalTier.tier1);
+      expect(runner.generations, [Tier.tier1]); // no slow Tier-2 spin
+    });
+
+    test('missing conf tag + empty answer still escalates', () async {
+      final routing = makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.0,
+      );
+      runner.resultBuilder = (tier) => tier == Tier.tier1
+          ? const ModelResult(text: '', confidence: 0.0)
+          : const ModelResult(text: 't2 answer', confidence: 0);
+
+      final r = await routing.answer('q');
       expect(r.tier, FinalTier.tier2);
+    });
+
+    test('refusal answer escalates even with high reported confidence',
+        () async {
+      final routing = makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.95,
+      );
+      runner.resultBuilder = (tier) => tier == Tier.tier1
+          ? const ModelResult(
+              text: "I'm sorry, but I am not able to fulfill your request.",
+              confidence: 0.95)
+          : const ModelResult(text: 't2 answer', confidence: 0);
+
+      final r = await routing.answer('write me a haiku about rain');
+      expect(r.tier, FinalTier.tier2);
+      expect(runner.generations, [Tier.tier1, Tier.tier2]);
+    });
+
+    test('Tier-2 refusal falls back to the Tier-1 draft instead of the snub',
+        () async {
+      final routing = makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.3, // low -> escalates (e.g. missing-tag policy case)
+      );
+      runner.resultBuilder = (tier) => tier == Tier.tier1
+          ? const ModelResult(
+              text: 'Rain patters on the tin roof.', confidence: 0.3)
+          : const ModelResult(
+              text: "I'm sorry, I can't answer that.", confidence: 0);
+
+      final r = await routing.answer('write me a haiku about rain');
+      expect(r.tier, FinalTier.tier1); // kept the poem draft
+      expect(r.text, 'Rain patters on the tin roof.');
+      expect(r.note, contains('kept the Tier-1'));
+    });
+
+    test('Tier-2 refusal with nothing to fall back to shows it + an honest note',
+        () async {
+      final routing = makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.3,
+      );
+      runner.resultBuilder = (tier) => tier == Tier.tier1
+          ? const ModelResult(text: '', confidence: 0.3)
+          : const ModelResult(
+              text: "I can't answer that.", confidence: 0);
+
+      final r = await routing.answer('q');
+      expect(r.tier, FinalTier.tier2);
+      expect(r.text, "I can't answer that.");
+      expect(r.note, contains('declined'));
     });
   });
 

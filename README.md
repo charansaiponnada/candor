@@ -36,11 +36,23 @@ test/router_test.dart      decision-table + log tests with stubbed runner/monito
 
 Per query: run Tier-1 → read device state → decide.
 
-| Tier-1 confidence | Device state (battery ≥ 20% AND thermal < MODERATE) | Result |
+Escalate to Tier-2 only when Tier-1 is *low*:
+
+- **low** = a parsed `conf:<X>` tag < 0.7, OR the answer is empty, OR the
+  answer looks like a refusal (measured on-device: the 0.5B reports 0.95–0.99
+  even when it confabulates, but refuses or goes quiet when stuck).
+- A **missing/unparsable tag parses to 0.0 but is trusted** when the answer is
+  substantive and non-refusal — the 0.5B omits its tag on good answers too.
+
+| Tier-1 output | Device state (battery ≥ 20% AND thermal < MODERATE) | Result |
 |---|---|---|
-| high (≥ 0.7) | any | Tier-1 answer, badge `Tier-1` |
-| low (< 0.7, or missing tag → 0.0, or empty answer) | OK | run Tier-2, badge `Tier-2` |
-| low (< 0.7…) | constrained | Tier-1 answer anyway, badge `Tier-1 (constrained)` + degradation note |
+| parsed conf ≥ 0.7 (or missing tag + substantive answer) | any | Tier-1 answer, badge `Tier-1` |
+| low (parsed conf < 0.7, or empty, or refusal) | OK | run Tier-2, badge `Tier-2` |
+| low | constrained | Tier-1 answer anyway, badge `Tier-1 (constrained)` + degradation note |
+
+If Tier-2 itself declines (refusal), the final answer falls back to the
+Tier-1 draft with the note "The larger on-device model declined this ask;
+kept the Tier-1 answer." — a failure never degrades into a canned apology.
 
 Every query appends one JSON line to `<app-docs>/escalations.jsonl`
 (`EscalationRecord`), the input for the future self-improvement research.
@@ -54,12 +66,17 @@ Every query appends one JSON line to `<app-docs>/escalations.jsonl`
   same single generation pass (no second inference). The parser accepts
   `conf:`/`Conf=`/`confidence=<X>` case- and format-variants; the tag line is
   always stripped from the displayed answer.
-- **Missing tag = low confidence.** Measured on-device (Sep 2026): the 0.5B
-  model reports 0.95–0.99 even when it confabulates, but *omits* the tag (or
-  writes `Conf=<X>`) when it can't answer. An unparsable/missing tag therefore
-  parses to **0.0** — "can't confirm ⇒ defer" — and raises the threshold above
-  which Tier-1 is trusted to **0.7**. Forced as a last gate: an empty Tier-1
-  answer escalates regardless of reported confidence.
+- **Missing tag = 0.0, but trusted when substantive.** Measured on-device
+  (Sep 2026): the 0.5B omits its `conf:<X>` tag on good answers (e.g. a solid
+  rain poem) and refuses or returns empty only when stuck; the 1.5B refuses
+  innocuous creative asks ("write me a hamlet on rain") even with a
+  creative-writing system prompt. So a missing/unparsable tag parses to 0.0
+  but *does not* escalate by itself. Escalation is gated on a parsed conf
+  < 0.7, an empty answer, or a refusal match — and a Tier-2 refusal falls back
+  to the Tier-1 draft instead of showing a canned apology.
+- **Creative writing is explicitly authorized** in both tiers' system prompts
+  ("Creative writing … is welcome and allowed"); the first build's refusal of
+  the rain-hamlet request was a prompt cause, not a safety one.
 - **Load-on-demand, one model at a time, last tier cached.** The plugin supports
   a single loaded model per process (`isModelLoaded` is one global flag), so two
   resident models are impossible without forking it. The last loaded tier stays
@@ -68,8 +85,9 @@ Every query appends one JSON line to `<app-docs>/escalations.jsonl`
   model sits in RAM (≈0.5 GB or ≈1.1 GB). Escalations pay Tier-1's pass +
   swap-to-Tier-2.
 - **CPU-only inference** (`gpuLayers: 0`) for deterministic behavior across
-  devices. 8 threads, 256 max tokens. The plugin supports Vulkan
-  (`detectGpu().recommendedGpuLayers`); switch if Tier-1 latency is disappointing.
+  devices. 8 threads; 200 max tokens for Tier-1, 256 for Tier-2. The plugin
+  supports Vulkan (`detectGpu().recommendedGpuLayers`); switch if Tier-1
+  latency is disappointing.
 - Chat history is in-memory only; only the escalation log persists.
 - No accuracy evaluation, device matrix, or fine-tuning loop — explicitly out of
   scope for this build (PRD §3, §2.1).

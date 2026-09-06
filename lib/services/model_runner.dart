@@ -22,7 +22,6 @@ import 'device_state.dart';
 class ModelRunner {
   static const int _threads = 8;
   static const int _contextSize = 2048;
-  static const int _maxTokens = 256;
   // CPU-only for deterministic behavior across devices.
   // ponytail: switch to detectGpu().recommendedGpuLayers per-device if slow.
   static const int _gpuLayers = 0;
@@ -30,11 +29,20 @@ class ModelRunner {
   static const String _t1Model = 'qwen2.5-0.5b-instruct-q4_k_m.gguf';
   static const String _t2Model = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
 
-  // First line must be the tag: conf:0.87 (variants handled by [_tagRe]).
+  // Qwen2.5 small instructs are refusal-prone on innocuous creative asks (a
+  // known DPO artifact), so creativity is explicitly authorized in-system.
+  // Keep the answer promise tight to bound generation time (the 1.5B runs
+  // iteratively on this budget device).
   static const String _confidenceSystemPrompt =
-      'You are a helpful assistant. Reply in exactly two lines. Line 1 is '
+      'You are a helpful assistant. Creative writing (poems, stories, haiku, '
+      'jokes) is welcome and allowed. Reply in exactly two lines: line 1 is '
       '"conf:<X>" where X is a number from 0.00 to 1.00 giving your honest '
-      'confidence in your answer. Line 2 is your answer.';
+      'confidence in your answer; line 2 is your answer.';
+
+  static const String _t2SystemPrompt =
+      'You are a helpful assistant. Creative writing (poems, stories, haiku, '
+      'jokes) is welcome and allowed. Answer the user directly in 4 sentences '
+      'or fewer; do not ask follow-up questions.';
 
   static final RegExp _tagRe = RegExp(
       r'^\s*conf(?:idence)?\s*[:=]?\s*<?\s*([0-9]+(?:\.[0-9]+)?|x)?\s*>?\s*$',
@@ -56,8 +64,10 @@ class ModelRunner {
       {void Function(String token)? onToken}) async {
     final modelName = tier == Tier.tier1 ? _t1Model : _t2Model;
     final messages = [
-      if (tier == Tier.tier1)
-        llama.ChatMessage(role: 'system', content: _confidenceSystemPrompt),
+      llama.ChatMessage(
+          role: 'system',
+          content:
+              tier == Tier.tier1 ? _confidenceSystemPrompt : _t2SystemPrompt),
       llama.ChatMessage(role: 'user', content: query),
     ];
 
@@ -74,10 +84,13 @@ class ModelRunner {
 
     final buf = StringBuffer();
     try {
+      // Tier-1 answers are short; Tier-2 gets more room but stays capped so a
+      // runaway generation can't turn into minutes on a budget CPU.
+      final maxTokens = tier == Tier.tier1 ? 200 : 256;
       await for (final token in _llama.generateChat(
         messages: messages,
         template: 'chatml',
-        maxTokens: _maxTokens,
+        maxTokens: maxTokens,
         temperature: 0.7,
       )) {
         buf.write(token);
