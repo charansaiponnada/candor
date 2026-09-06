@@ -61,13 +61,14 @@ class Router {
   Router(this.runner, this.monitor, this.log);
 
   Future<RouterResult> answer(String query,
-      {void Function(String token)? onToken}) async {
+      {List<ChatMessage>? history,
+      void Function(String token)? onToken}) async {
     final sw = Stopwatch()..start();
 
     // Tier-1 runs silently (it's scoring). Only the chosen final answer
     // streams into the UI. ponytail: stream the Tier-1 draft too and swap it
     // on escalation if that "draft-then-replace" effect is wanted in the demo.
-    final t1 = await runner.generate(Tier.tier1, query);
+    final t1 = await runner.generate(Tier.tier1, query, history: history);
     final device = await monitor.read();
     // A parsed tag of 0.0 means "missing/unparsable", not "zero" — and with a
     // substantive, non-refusal answer that is trusted (see class doc).
@@ -84,7 +85,8 @@ class Router {
     String? t2Answer;
 
     if (lowConfidence && canEscalate) {
-      final t2 = await runner.generate(Tier.tier2, query, onToken: onToken);
+      final t2 = await runner.generate(Tier.tier2, query,
+          history: history, onToken: onToken);
       final t2Declined = _refusalRe.hasMatch(t2.text);
       // Don't let a slow refusal replace a usable Tier-1 draft.
       final keepT1 = t2Declined && t1.text.trim().isNotEmpty;

@@ -101,6 +101,10 @@ class _ChatScreenState extends State<ChatScreen> {
     if (query.isEmpty || _sending) return;
     _input.clear();
 
+    // Prior turns (excludes this query and the streaming draft) give the
+    // model multi-turn context (PRD §4.1 personalization).
+    final history = List<ChatMessage>.from(_messages);
+
     setState(() {
       _messages.add(ChatMessage(fromUser: true, text: query));
       _messages.add(ChatMessage(fromUser: false, text: '', streaming: true));
@@ -129,8 +133,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     try {
-      final result =
-          await widget.router.answer(query, onToken: (t) => _appendToken(draft, t));
+      final result = await widget.router.answer(query,
+          history: history, onToken: (t) => _appendToken(draft, t));
       setState(() {
         draft
           ..streaming = false

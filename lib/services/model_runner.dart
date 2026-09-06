@@ -2,6 +2,7 @@ import 'package:llama_flutter_android/llama_flutter_android.dart' as llama;
 
 import '../models.dart';
 import 'device_state.dart';
+import 'stores.dart';
 
 /// Wraps the llama.cpp Flutter plugin.
 ///
@@ -50,7 +51,14 @@ class ModelRunner {
       caseSensitive: false);
 
   final llama.LlamaController _llama = llama.LlamaController();
+  final SettingsStore _settings;
   Tier? _residentTier;
+
+  /// Optional [SettingsStore] so the app can drive persona/name (and later the
+  /// model + GPU choice) from persisted settings. Defaults keep stub tests and
+  /// the bare constructor working unchanged.
+  ModelRunner({SettingsStore? settings})
+      : _settings = settings ?? SettingsStore.defaults();
 
   /// Ensures both GGUFs are copied out of the APK into app storage. Model
   /// load itself is deferred to the first query that needs a tier.
@@ -61,13 +69,15 @@ class ModelRunner {
   }
 
   Future<ModelResult> generate(Tier tier, String query,
-      {void Function(String token)? onToken}) async {
+      {List<ChatMessage>? history,
+      void Function(String token)? onToken}) async {
     final modelName = tier == Tier.tier1 ? _t1Model : _t2Model;
-    final messages = [
+    final messages = <llama.ChatMessage>[
       llama.ChatMessage(
           role: 'system',
-          content:
-              tier == Tier.tier1 ? _confidenceSystemPrompt : _t2SystemPrompt),
+          content: systemPromptFor(tier, _settings.displayName, _settings.persona)),
+      ...historyTurns(history ?? const []).map(
+          (t) => llama.ChatMessage(role: t.$1, content: t.$2)),
       llama.ChatMessage(role: 'user', content: query),
     ];
 
@@ -114,6 +124,38 @@ class ModelRunner {
   void dispose() {
     _llama.dispose();
     _residentTier = null;
+  }
+
+  /// Builds the system prompt for a tier. Name/persona are appended at the
+  /// END, so Tier-1's exact two-line `conf:` output contract is untouched.
+  static String systemPromptFor(Tier tier, String displayName, String persona) {
+    final base =
+        tier == Tier.tier1 ? _confidenceSystemPrompt : _t2SystemPrompt;
+    final name = displayName.trim();
+    final p = persona.trim();
+    if (name.isEmpty && p.isEmpty) return base;
+    final extras = <String>[
+      if (name.isNotEmpty) 'Address the user as $name.',
+      if (p.isNotEmpty) 'Persona: $p',
+    ];
+    return '$base\n${extras.join('\n')}';
+  }
+
+  /// Prior turns for ChatML, newest-first scan so the oldest of the kept turns
+  /// is the one dropped when the ceiling is hit. Empty rows are skipped,
+  /// adjacent same-role turns merge (tool cards read as assistant turns).
+  static List<(String, String)> historyTurns(List<ChatMessage> history,
+      {int maxTurns = 6}) {
+    final acc = <(String, String)>[];
+    for (var i = history.length - 1; i >= 0 && acc.length < maxTurns; i--) {
+      final m = history[i];
+      final text = m.text.trim();
+      if (text.isEmpty) continue;
+      final role = m.fromUser ? 'user' : 'assistant';
+      if (acc.isNotEmpty && acc.last.$1 == role) continue;
+      acc.add((role, text));
+    }
+    return acc.reversed.toList();
   }
 
   /// Strips the leading `conf:…` line, returning `(answer, confidence)` with

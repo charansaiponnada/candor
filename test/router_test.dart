@@ -284,17 +284,95 @@ void main() {
       expect(record['finalTierUsed'], 'tier2');
     });
   });
+
+  group('Prompt assembly (buildPromptMessages equivalence)', () {
+    test('systemPromptFor defaults keep the exact Tier-1 contract', () {
+      final p = ModelRunner.systemPromptFor(Tier.tier1, '', '');
+      expect(p, contains('conf:<X>'));
+    });
+
+    test('name + persona are appended after the contract', () {
+      final p = ModelRunner.systemPromptFor(Tier.tier1, 'Sam', 'terse');
+      expect(p, contains('conf:<X>'));
+      expect(p, endsWith('Persona: terse'));
+      expect(p, contains('Address the user as Sam.'));
+    });
+
+    test('only persona when no name', () {
+      final p = ModelRunner.systemPromptFor(Tier.tier2, '', 'expert');
+      expect(p, endsWith('Persona: expert'));
+      expect(p, isNot(contains('Address the user as')));
+    });
+
+    test('historyTurns merges, trims, caps and orders', () {
+      final history = [
+        ChatMessage(fromUser: true, text: '  '), // skipped: blank
+        ChatMessage(fromUser: true, text: 'q1'),
+        ChatMessage(fromUser: false, text: 'a1'), // tool card lands as assistant
+        ChatMessage(fromUser: true, text: 'q2'),
+        ChatMessage(fromUser: false, text: 'a2'),
+      ];
+      final turns = ModelRunner.historyTurns(history);
+      expect(turns.map((t) => t.$1), ['user', 'assistant', 'user', 'assistant']);
+      expect(turns.map((t) => t.$2), ['q1', 'a1', 'q2', 'a2']);
+    });
+
+    test('historyTurns caps at 6 and drops the oldest kept turn first',
+        () {
+      final history = [
+        for (var i = 0; i < 8; i++)
+          ChatMessage(fromUser: i.isEven, text: 'msg-$i'),
+      ];
+      final turns = ModelRunner.historyTurns(history);
+      expect(turns, hasLength(6));
+      // oldest kept is msg-2; msg-0/msg-1 dropped
+      expect(turns.first.$2, 'msg-2');
+      expect(turns.last.$2, 'msg-7');
+    });
+  });
+
+  group('Multi-turn history forwarding (PRD §4.1)', () {
+    test('history is passed through to every generation', () async {
+      final router = makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.2, // escalates -> both tiers see the history
+      );
+      final history = [
+        ChatMessage(fromUser: true, text: 'hi'),
+        ChatMessage(fromUser: false, text: 'hello'),
+      ];
+
+      await router.answer('follow up', history: history);
+
+      expect(runner.histories, hasLength(4)); // 2 turns x 2 model passes
+      expect(runner.histories.map((m) => m.text), [
+        'hi', 'hello', 'hi', 'hello',
+      ]);
+    });
+
+    test('query without history keeps existing behavior', () async {
+      final r = await makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+      ).answer('fresh');
+
+      expect(r.tier, FinalTier.tier1);
+      expect(runner.histories, isEmpty);
+    });
+  });
 }
 
 class _StubRunner extends ModelRunner {
   double confidence = 0.9;
   ModelResult Function(Tier tier)? resultBuilder;
   final List<Tier> generations = [];
+  final List<ChatMessage> histories = [];
 
   @override
   Future<ModelResult> generate(Tier tier, String query,
-      {void Function(String token)? onToken}) async {
+      {List<ChatMessage>? history,
+      void Function(String token)? onToken}) async {
     generations.add(tier);
+    histories.addAll(history ?? const []);
     return resultBuilder?.call(tier) ??
         (tier == Tier.tier1
             ? ModelResult(text: 't1 answer', confidence: confidence)
