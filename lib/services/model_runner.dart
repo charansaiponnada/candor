@@ -23,12 +23,6 @@ import 'stores.dart';
 class ModelRunner {
   static const int _threads = 8;
   static const int _contextSize = 2048;
-  // CPU-only for deterministic behavior across devices.
-  // ponytail: switch to detectGpu().recommendedGpuLayers per-device if slow.
-  static const int _gpuLayers = 0;
-
-  static const String _t1Model = 'qwen2.5-0.5b-instruct-q4_k_m.gguf';
-  static const String _t2Model = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
 
   // Qwen2.5 small instructs are refusal-prone on innocuous creative asks (a
   // known DPO artifact), so creativity is explicitly authorized in-system.
@@ -53,10 +47,13 @@ class ModelRunner {
   final llama.LlamaController _llama = llama.LlamaController();
   final SettingsStore _settings;
   Tier? _residentTier;
+  String? _residentModel;
+  bool? _residentGpu;
+  llama.GpuInfo? _gpuInfo;
 
-  /// Optional [SettingsStore] so the app can drive persona/name (and later the
-  /// model + GPU choice) from persisted settings. Defaults keep stub tests and
-  /// the bare constructor working unchanged.
+  /// Optional [SettingsStore] so the app can drive persona/name and the model
+  /// + GPU choice from persisted settings. Defaults keep stub tests and the
+  /// bare constructor working unchanged.
   ModelRunner({SettingsStore? settings})
       : _settings = settings ?? SettingsStore.defaults();
 
@@ -64,14 +61,36 @@ class ModelRunner {
   /// load itself is deferred to the first query that needs a tier.
   Future<void> load() async {
     final prepare = DeviceStateMonitor.instance.prepareModel;
-    await prepare(_t1Model);
-    await prepare(_t2Model);
+    await prepare(_settings.tier1Model);
+    await prepare(_settings.tier2Model);
+  }
+
+  /// Bundled GGUFs available for the model picker.
+  Future<List<String>> listModels() => DeviceStateMonitor.instance.listModels();
+
+  /// What the settings screen shows under the GPU switch.
+  Future<(bool supported, String name)> gpuCapability() async {
+    final g = await _detectGpu();
+    if (!g.vulkanSupported) return (false, 'Vulkan is not supported on this device');
+    return (true, g.gpuName == 'None' ? 'Vulkan ready' : g.gpuName);
+  }
+
+  Future<llama.GpuInfo> _detectGpu() async =>
+      _gpuInfo ??= await _llama.detectGpu();
+
+  /// Vulkan offload depth: the plugin's recommendation (0 / 16 / 99), or 0
+  /// (CPU-only) when Vulkan isn't available.
+  Future<int> _resolveGpuLayers() async {
+    final g = await _detectGpu();
+    return g.vulkanSupported ? g.recommendedGpuLayers : 0;
   }
 
   Future<ModelResult> generate(Tier tier, String query,
       {List<ChatMessage>? history,
       void Function(String token)? onToken}) async {
-    final modelName = tier == Tier.tier1 ? _t1Model : _t2Model;
+    final modelName =
+        tier == Tier.tier1 ? _settings.tier1Model : _settings.tier2Model;
+    final gpuLayers = _settings.useGpu ? await _resolveGpuLayers() : 0;
     final messages = <llama.ChatMessage>[
       llama.ChatMessage(
           role: 'system',
@@ -81,15 +100,19 @@ class ModelRunner {
       llama.ChatMessage(role: 'user', content: query),
     ];
 
-    if (_residentTier != tier) {
+    if (_residentTier != tier ||
+        _residentModel != modelName ||
+        _residentGpu != _settings.useGpu) {
       if (_residentTier != null) await _llama.dispose();
       final path = await DeviceStateMonitor.instance.prepareModel(modelName);
       await _llama.loadModel(
           modelPath: path,
           threads: _threads,
           contextSize: _contextSize,
-          gpuLayers: _gpuLayers);
+          gpuLayers: gpuLayers);
       _residentTier = tier;
+      _residentModel = modelName;
+      _residentGpu = _settings.useGpu;
     }
 
     final buf = StringBuffer();
@@ -124,6 +147,8 @@ class ModelRunner {
   void dispose() {
     _llama.dispose();
     _residentTier = null;
+    _residentModel = null;
+    _residentGpu = null;
   }
 
   /// Builds the system prompt for a tier. Name/persona are appended at the

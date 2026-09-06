@@ -4,11 +4,13 @@ import 'package:flutter/material.dart' hide Router;
 
 import '../models.dart';
 import '../services/device_state.dart';
+import '../services/model_runner.dart';
 import '../services/router.dart';
 import '../services/stores.dart';
 import '../services/tools.dart';
 import 'conversations_screen.dart';
 import 'debug_panel.dart';
+import 'settings_screen.dart';
 
 /// Suggested first prompts. Chosen to demo both paths: the third typically
 /// trips Tier-1's low/missing confidence and escalates to Tier-2; the last
@@ -24,12 +26,16 @@ class ChatScreen extends StatefulWidget {
   final Router router;
   final DeviceStateMonitor monitor;
   final ChatStore chatStore;
+  final SettingsStore settingsStore;
+  final ModelRunner runner;
 
   const ChatScreen(
       {super.key,
       required this.router,
       required this.monitor,
-      required this.chatStore});
+      required this.chatStore,
+      required this.settingsStore,
+      required this.runner});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -226,6 +232,14 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: const Icon(Icons.chat_bubble_outline),
             tooltip: 'Chat history',
             onPressed: _openConversations,
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => SettingsScreen(
+                  store: widget.settingsStore, runner: widget.runner),
+            )),
           ),
           IconButton(
             icon: const Icon(Icons.tune),

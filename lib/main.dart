@@ -13,18 +13,20 @@ class AppServices {
   final DeviceStateMonitor monitor;
   final ChatStore chatStore;
   final SettingsStore settingsStore;
+  final ModelRunner runner;
 
-  AppServices._(this.router, this.monitor, this.chatStore, this.settingsStore);
+  AppServices._(
+      this.router, this.monitor, this.chatStore, this.settingsStore, this.runner);
 
   static Future<AppServices> create() async {
     final monitor = DeviceStateMonitor.instance;
     final settings = await SettingsStore.create();
-    final runner = ModelRunner();
+    final runner = ModelRunner(settings: settings);
     await runner.load();
     final log = await EscalationLog.create();
     final chatStore = await ChatStore.create();
     return AppServices._(
-        Router(runner, monitor, log), monitor, chatStore, settings);
+        Router(runner, monitor, log), monitor, chatStore, settings, runner);
   }
 }
 
@@ -59,6 +61,8 @@ class CandorApp extends StatelessWidget {
             router: snap.data!.router,
             monitor: snap.data!.monitor,
             chatStore: snap.data!.chatStore,
+            settingsStore: snap.data!.settingsStore,
+            runner: snap.data!.runner,
           );
         },
       ),

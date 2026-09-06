@@ -17,6 +17,7 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "getBatteryPercent" -> result.success(batteryPercent())
                     "getThermalStatus" -> result.success(thermalStatus())
+                    "listModels" -> result.success(listModels())
                     "prepareModel" -> {
                         val name = call.argument<String>("name")
                         if (name == null) {
@@ -44,6 +45,11 @@ class MainActivity : FlutterActivity() {
             return pm.currentThermalStatus
         }
         return PowerManager.THERMAL_STATUS_NONE
+    }
+
+    // Bundled GGUF names for the model picker.
+    private fun listModels(): List<String> {
+        return assets.list("models")?.toList() ?: emptyList()
     }
 
     // Assets can't be loaded as a file path by llama.cpp, so stream-copy the bundled
