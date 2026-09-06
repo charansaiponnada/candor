@@ -29,8 +29,24 @@ class EscalationLog {
 /// 2. read device state
 /// 3. high confidence -> Tier-1; low + device OK -> Tier-2;
 ///    low + constrained device -> Tier-1 with degradation note
+///
+/// "Low confidence" means a parsed `conf:` below [confidenceThreshold], an
+/// empty answer, or a refusal. Calibration (on-device, Sep 2026): the 0.5B
+/// *omits* its tag on most good answers (creative asks included) and refuses
+/// only when genuinely stuck, so a missing tag with a substantive, non-refusal
+/// answer is trusted as-is — NOT escalated. Escalation is worth its ~30–50 s
+/// on this hardware only when Tier-1 actually signals struggle (low tag, empty,
+/// refusal). A Tier-2 refusal falls back to Tier-1's draft rather than
+/// replacing a good answer with a snub.
 class Router {
-  static const double confidenceThreshold = 0.5;
+  static const double confidenceThreshold = 0.7;
+
+  // Qwen2.5 smalls refuse innocuous asks; a snubbed answer is treated as low
+  // confidence so a Tier-1 refusal escalates to the larger model.
+  static final RegExp _refusalRe = RegExp(
+      r"i'?m\s+not\s+able|i'?m\s+sorry|(?:can'?t|cannot|unable)\s+"
+      r"(?:fulfill|assist|help|comply|answer)|not\s+allowed",
+      caseSensitive: false);
 
   final ModelRunner runner;
   final DeviceStateMonitor monitor;
@@ -45,15 +61,21 @@ class Router {
   Router(this.runner, this.monitor, this.log);
 
   Future<RouterResult> answer(String query,
-      {void Function(String token)? onToken}) async {
+      {List<ChatMessage>? history,
+      void Function(String token)? onToken}) async {
     final sw = Stopwatch()..start();
 
     // Tier-1 runs silently (it's scoring). Only the chosen final answer
     // streams into the UI. ponytail: stream the Tier-1 draft too and swap it
     // on escalation if that "draft-then-replace" effect is wanted in the demo.
-    final t1 = await runner.generate(Tier.tier1, query);
+    final t1 = await runner.generate(Tier.tier1, query, history: history);
     final device = await monitor.read();
-    final lowConfidence = t1.confidence < confidenceThreshold;
+    // A parsed tag of 0.0 means "missing/unparsable", not "zero" — and with a
+    // substantive, non-refusal answer that is trusted (see class doc).
+    final lowConfidence = (t1.confidence > 0 &&
+            t1.confidence < confidenceThreshold) ||
+        t1.text.trim().isEmpty ||
+        _refusalRe.hasMatch(t1.text);
     final canEscalate = device.allowsEscalation;
 
     final bool escalated;
@@ -63,12 +85,20 @@ class Router {
     String? t2Answer;
 
     if (lowConfidence && canEscalate) {
-      final t2 = await runner.generate(Tier.tier2, query, onToken: onToken);
+      final t2 = await runner.generate(Tier.tier2, query,
+          history: history, onToken: onToken);
+      final t2Declined = _refusalRe.hasMatch(t2.text);
+      // Don't let a slow refusal replace a usable Tier-1 draft.
+      final keepT1 = t2Declined && t1.text.trim().isNotEmpty;
       escalated = true;
-      tier = FinalTier.tier2;
-      text = t2.text;
-      t2Answer = t2.text;
-      note = null;
+      tier = keepT1 ? FinalTier.tier1 : FinalTier.tier2;
+      text = keepT1 ? t1.text : t2.text;
+      t2Answer = t2.text; // log the failed trial too
+      note = keepT1
+          ? 'The larger on-device model declined this ask; kept the Tier-1 answer.'
+          : (t2Declined
+              ? 'The larger on-device model also declined this one.'
+              : null);
     } else {
       escalated = false;
       if (lowConfidence) {

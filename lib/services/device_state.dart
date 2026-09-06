@@ -49,4 +49,9 @@ class DeviceStateMonitor {
     if (path == null) throw StateError('prepareModel failed for $name');
     return path;
   }
+
+  /// Bundled GGUF model names shipped in the APK assets (for the picker).
+  Future<List<String>> listModels() async {
+    return (await _channel.invokeListMethod<String>('listModels')) ?? const [];
+  }
 }

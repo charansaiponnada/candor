@@ -4,21 +4,29 @@ import 'screens/chat_screen.dart';
 import 'services/device_state.dart';
 import 'services/model_runner.dart';
 import 'services/router.dart';
+import 'services/stores.dart';
 
 /// Everything the app needs wired once (first launch copies bundled GGUFs into
 /// app storage; tiers load on demand at first query — see ModelRunner).
 class AppServices {
   final Router router;
   final DeviceStateMonitor monitor;
+  final ChatStore chatStore;
+  final SettingsStore settingsStore;
+  final ModelRunner runner;
 
-  AppServices._(this.router, this.monitor);
+  AppServices._(
+      this.router, this.monitor, this.chatStore, this.settingsStore, this.runner);
 
   static Future<AppServices> create() async {
     final monitor = DeviceStateMonitor.instance;
-    final runner = ModelRunner();
+    final settings = await SettingsStore.create();
+    final runner = ModelRunner(settings: settings);
     await runner.load();
     final log = await EscalationLog.create();
-    return AppServices._(Router(runner, monitor, log), monitor);
+    final chatStore = await ChatStore.create();
+    return AppServices._(
+        Router(runner, monitor, log), monitor, chatStore, settings, runner);
   }
 }
 
@@ -42,13 +50,20 @@ class CandorApp extends StatelessWidget {
       theme: _theme(Brightness.light),
       darkTheme: _theme(Brightness.dark),
       themeMode: ThemeMode.system,
-      // "Candor" = trust-signaling teal seed; full M3 role set generated from it.
+      // "Candor" = warm clay seed (blind-demo colour, feels honest + human);
+      // full M3 role set generated from it.
       home: FutureBuilder<AppServices>(
         future: _services,
         builder: (context, snap) {
           if (snap.hasError) return _StartupView(error: '${snap.error}');
           if (!snap.hasData) return const _StartupView();
-          return ChatScreen(router: snap.data!.router, monitor: snap.data!.monitor);
+          return ChatScreen(
+            router: snap.data!.router,
+            monitor: snap.data!.monitor,
+            chatStore: snap.data!.chatStore,
+            settingsStore: snap.data!.settingsStore,
+            runner: snap.data!.runner,
+          );
         },
       ),
     );
@@ -58,7 +73,7 @@ class CandorApp extends StatelessWidget {
 ThemeData _theme(Brightness brightness) => ThemeData(
       useMaterial3: true, // required on both themes, not just one
       colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF00696B), // deep teal — trustworthy, distinctive
+        seedColor: const Color(0xFFA64B2A), // warm clay, not corporate teal
         brightness: brightness,
       ),
     );
