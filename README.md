@@ -13,26 +13,35 @@ Zero network calls at inference time. Battery/thermal state gate the escalation.
 ```
 lib/
   main.dart                M3 theme (useMaterial3 + ColorScheme.fromSeed) + startup wiring
-  models.dart              Tier/ThermalLevel/FinalTier enums, ChatMessage,
+  models.dart              Tier/ThermalLevel/FinalTier enums, ChatMessage, Conversation,
                            EscalationRecord (the JSONL row, PRD §6.5)
   services/
-    device_state.dart      native MethodChannel bridge (battery, thermal, model-file prep)
-                           + real-vs-simulated readout + demo override
-    model_runner.dart      llama_flutter_android wrapper, single controller,
-                           resident-tier caching + single-pass confidence parsing
+    device_state.dart      native MethodChannel bridge (battery, thermal, model-file prep,
+                           bundled-model listing) + real-vs-simulated readout + demo override
+    model_runner.dart      llama_flutter_android wrapper, single controller, resident
+                           (tier, model, gpu) caching, single-pass confidence parsing,
+                           settings-driven model choice + optional Vulkan offload
     router.dart            decision table + EscalationLog (JSON-lines file)
     tools.dart             tool context: regex intent detector + intent executor
                            (open app, set timer, SMS/email draft, open website)
+    stores.dart            JSON-file persistence: ChatStore (conversations.json,
+                           corrupt file preserved as .bak) + SettingsStore (settings.json)
   screens/
-    chat_screen.dart       Claude-style chat: borderless answers, quiet
-                           `● Tier-1 · 12.4s · conf 0.95` attribution, typing dots
+    chat_screen.dart       conversation-backed Claude-style chat: borderless answers,
+                           quiet `● Tier-1 · 12.4s · conf 0.95` attribution, typing dots,
+                           multi-turn history fed back as ChatML context
+    conversations_screen.dart chat history list: newest-first, swipe-to-delete, "New chat"
+    settings_screen.dart   name/persona, per-tier model dropdowns, GPU (Vulkan) switch
+                           with a live capability line
     debug_panel.dart       live device readout, latency pitch data, simulate toggle
 android/…/MainActivity.kt  one MethodChannel "candor/device":
                            getBatteryPercent (BatteryManager)
                            getThermalStatus (PowerManager, API 29+)
                            prepareModel (stream-copy bundled GGUF out of assets)
-test/router_test.dart      decision-table + log tests with stubbed runner/monitor
-test/tools_test.dart       tool intent-detector tests (30 tests total, all pass)
+                           listModels (assets/models for the picker)
+test/                      decision-table + log + prompt-assembly tests with stubbed
+                           runner/monitor + store/conversation/settings tests
+                           (57 tests total, all pass)
 ```
 
 ### Router decision table (PRD §6.4)
@@ -85,6 +94,24 @@ so the manifest declares both that legacy name and `android.permission.SET_ALARM
 If no app can handle an intent, the card shows "Couldn't do that" instead of a
 crypto error.
 
+## Chat history & personalization
+
+- **Multi-conversation chat history.** Every completed turn lands in
+  `<app-docs>/conversations.json` (ChatStore). The chat list shows the newest
+  thread first (title from the first question, snippet from the last reply);
+  swipe deletes, "New chat" opens a fresh thread. A corrupted history file is
+  preserved as `.bak` instead of being wiped.
+- **Multi-turn memory.** The last 6 prior turns (empty rows skipped, adjacent
+  same-role turns merged, tool cards treated as assistant turns) are fed back
+  into the ChatML context, so follow-ups like "what about the second one?" work.
+- **Name & persona.** Settings → `displayName` / `persona` are appended at the
+  **end** of the system prompt, so Tier-1's two-line `conf:` output contract is
+  untouched. Changes apply on the next query.
+- **Model selection.** Settings lets you pick which bundled GGUF serves each
+  tier (the picker reads `assets/models`), and flip `Use GPU (Vulkan)` — inputs
+  are applied on the next query (the resident model reloads when the model or
+  GPU setting changes).
+
 ## Known limitations / decisions (PRD §9 asks to state these)
 
 - **Confidence proxy is self-assessed, not logprob-based.** The `llama_flutter_android`
@@ -112,11 +139,11 @@ crypto error.
   disposed only on a tier switch (PRD §9's load-on-demand fallback). Only one
   model sits in RAM (≈0.5 GB or ≈1.1 GB). Escalations pay Tier-1's pass +
   swap-to-Tier-2.
-- **CPU-only inference** (`gpuLayers: 0`) for deterministic behavior across
-  devices. 8 threads; 200 max tokens for Tier-1, 256 for Tier-2. The plugin
-  supports Vulkan (`detectGpu().recommendedGpuLayers`); switch if Tier-1
-  latency is disappointing.
-- Chat history is in-memory only; only the escalation log persists.
+- **CPU-only by default, Vulkan optional.** `gpuLayers: 0` unless `Use GPU
+  (Vulkan)` is on in Settings (off by default for deterministic cross-device
+  behavior); when on, offload depth uses the plugin's
+  `detectGpu().recommendedGpuLayers` recommendation (0 if Vulkan is
+  unavailable). 8 threads; 200 max tokens for Tier-1, 256 for Tier-2.
 - No accuracy evaluation, device matrix, or fine-tuning loop — explicitly out of
   scope for this build (PRD §3, §2.1).
 
