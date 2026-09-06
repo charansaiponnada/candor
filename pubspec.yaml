@@ -1,0 +1,21 @@
+name: candor
+description: "On-device two-tier SLM assistant that tells you when it's holding back."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  llama_flutter_android: ^0.2.6
+  path_provider: ^2.1.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
