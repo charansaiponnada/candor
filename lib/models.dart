@@ -1,5 +1,8 @@
-/// Shared data model: tiers, device signals, chat messages, escalation log.
+/// Shared data model: tiers, device signals, chat messages, conversations,
+/// escalation log.
 library;
+
+import 'dart:math' show Random;
 
 /// On-device actions a tool query maps to (PRD §6.7 tool context).
 enum ToolKind { launchApp, setTimer, sms, email, website }
@@ -33,6 +36,13 @@ extension FinalTierTable on FinalTier {
       };
 }
 
+/// Reverse of [FinalTierTable.dbValue]; unknown values fall back to tier1.
+FinalTier finalTierFromDb(String v) => switch (v) {
+      'tier2' => FinalTier.tier2,
+      'tier1_constrained' => FinalTier.tier1Constrained,
+      _ => FinalTier.tier1,
+    };
+
 class ChatMessage {
   final bool fromUser;
   String text;
@@ -53,6 +63,75 @@ class ChatMessage {
     this.toolKind,
     this.streaming = false,
   });
+
+  /// Streaming rows are transient UI state and never persisted.
+  Map<String, Object?> toJson() => {
+        'fromUser': fromUser,
+        'text': text,
+        'tier': tier?.dbValue,
+        'note': note,
+        'latencyMs': latencyMs,
+        'confidence': confidence,
+        'toolKind': toolKind?.name,
+      };
+
+  factory ChatMessage.fromJson(Map<String, Object?> j) => ChatMessage(
+        fromUser: j['fromUser'] as bool? ?? false,
+        text: j['text'] as String? ?? '',
+        tier: switch (j['tier']) {
+          final String s => finalTierFromDb(s),
+          _ => null,
+        },
+        note: j['note'] as String?,
+        latencyMs: (j['latencyMs'] as num?)?.toDouble(),
+        confidence: (j['confidence'] as num?)?.toDouble(),
+        toolKind: switch (j['toolKind']) {
+          final String s => ToolKind.values.asNameMap()[s],
+          _ => null,
+        },
+      );
+}
+
+/// A persisted conversation (a named/growable chat thread).
+class Conversation {
+  String id;
+  String title;
+  int createdAt;
+  int updatedAt;
+  final List<ChatMessage> messages;
+
+  Conversation({
+    required this.id,
+    required this.title,
+    required this.createdAt,
+    required this.updatedAt,
+    List<ChatMessage>? messages,
+  }) : messages = messages ?? [];
+
+  static Conversation newThread() => Conversation(
+        id: '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}',
+        title: '',
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+
+  Map<String, Object?> toJson() => {
+        'id': id,
+        'title': title,
+        'createdAt': createdAt,
+        'updatedAt': updatedAt,
+        'messages': messages.map((m) => m.toJson()).toList(),
+      };
+
+  factory Conversation.fromJson(Map<String, Object?> j) => Conversation(
+        id: j['id'] as String? ?? '',
+        title: j['title'] as String? ?? '',
+        createdAt: j['createdAt'] as int? ?? 0,
+        updatedAt: j['updatedAt'] as int? ?? 0,
+        messages: ((j['messages'] as List<Object?>?) ?? const [])
+            .map((e) => ChatMessage.fromJson(e as Map<String, Object?>))
+            .toList(),
+      );
 }
 
 class ModelResult {
