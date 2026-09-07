@@ -29,10 +29,20 @@ class DeviceStateMonitor {
   ThermalLevel simulatedThermal = ThermalLevel.severe;
 
   /// Real device values (the debug panel shows these even while simulating).
+  ///
+  /// A null from the native bridge previously masked as "100% / NONE" — i.e. a
+  /// broken channel silently unlocked escalation. Now it fails loudly: the
+  /// query errors instead of pretending everything is fine.
   Future<DeviceState> readReal() async {
-    final battery = await _channel.invokeMethod<int>('getBatteryPercent') ?? 100;
-    final thermal = await _channel.invokeMethod<int>('getThermalStatus') ?? 0;
-    return DeviceState(batteryPercent: battery, thermal: thermalFromInt(thermal));
+    final battery = await _channel.invokeMethod<int>('getBatteryPercent');
+    final thermal = await _channel.invokeMethod<int>('getThermalStatus');
+    if (battery == null || thermal == null) {
+      throw StateError(
+          'candor/device returned null (battery=$battery, thermal=$thermal) — '
+          'native bridge is broken; not trusting defaults.');
+    }
+    return DeviceState(
+        batteryPercent: battery, thermal: thermalFromInt(thermal));
   }
 
   /// What the router sees: simulated values while the demo toggle is on.
