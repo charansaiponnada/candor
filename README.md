@@ -172,3 +172,7 @@ query.
 
 The Debug & Demo panel shows a running latency read for both paths.
 Offline proof: enable airplane mode, run again — the app keeps working.
+Permission proof: `android/app/src/main/AndroidManifest.xml` (the release
+manifest) declares no `INTERNET` permission — the app is architecturally
+incapable of a network call. (The debug-flavor manifest adds it only for
+Flutter's hot-reload tooling; it's stripped from release builds.)

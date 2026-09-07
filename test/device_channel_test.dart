@@ -28,4 +28,14 @@ void main() {
 
     expect(await DeviceStateMonitor.instance.listModels(), isEmpty);
   });
+
+  test('readReal fails loudly when the native bridge returns null', () {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async => null);
+
+    expect(
+      () => DeviceStateMonitor.instance.readReal(),
+      throwsA(isA<StateError>()),
+    );
+  });
 }

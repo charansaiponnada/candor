@@ -200,6 +200,77 @@ void main() {
     });
   });
 
+  group('Refusal gate', () {
+    // Every phrasing here is a refusal (even at reported confidence 0.95) and
+    // must escalate; the companion "does not snub" list guards the refusals
+    // from matching innocent, positive idioms.
+    final refusals = [
+      "I'm not able to help with that.",
+      'I am not able to answer this.',
+      "I'm sorry, but I can't fulfill your request.",
+      "I can't do that for you.",
+      'I cannot generate that content.',
+      "I'm unable to provide that.",
+      "I'm afraid I can't do that.",
+      "I'm afraid I'm not able to do that.",
+      'As an AI, I cannot comply with this.',
+      'As a language model, I won\'t assist with that.',
+      "I won't do that.",
+      "I won't be able to help with that.",
+      'I would not be able to sign off on this.',
+      'I would not give you that.',
+      'I cannot give you the full text.',
+      'I refuse to comment.',
+      "I'd rather not talk about that.",
+      "I don't have the ability to do that.",
+      "That's not allowed.",
+      "That's not something I can do.",
+      'This is not something we can do for you.',
+      'I could not complete that request.',
+    ];
+    final notRefusals = [
+      "I can't help but agree with you!",
+      "I can't help thinking this looks great.",
+      "I'm able to help with that.",
+      "I'll be able to help with that.",
+      'I can answer that easily.',
+      'As an AI, I can answer that easily.',
+      'I would not describe it that way.',
+      "I won't mention that again.",
+      "I am not afraid of being wrong, here's the answer.",
+    ];
+
+    for (final refusal in refusals) {
+      test('detects: "$refusal"', () async {
+        final routing = makeRouter(
+          const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+          confidence: 0.95,
+        );
+        runner.resultBuilder = (tier) => tier == Tier.tier1
+            ? ModelResult(text: refusal, confidence: 0.95)
+            : const ModelResult(text: 't2 answer', confidence: 0);
+
+        final r = await routing.answer('write me a haiku about rain');
+        expect(r.tier, FinalTier.tier2);
+      });
+    }
+
+    for (final innocent in notRefusals) {
+      test('does not snub: "$innocent"', () async {
+        final routing = makeRouter(
+          const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+          confidence: 0.95,
+        );
+        runner.resultBuilder = (tier) => tier == Tier.tier1
+            ? ModelResult(text: innocent, confidence: 0.95)
+            : const ModelResult(text: 't2 answer', confidence: 0);
+
+        final r = await routing.answer('q');
+        expect(r.tier, FinalTier.tier1);
+      });
+    }
+  });
+
   group('Confidence tag parsing', () {
     test('parses the strict two-line format and strips the tag', () {
       final r = ModelRunner.cleanTaggedAnswer('conf:0.87\n12 is the answer.');

@@ -42,10 +42,25 @@ class Router {
   static const double confidenceThreshold = 0.7;
 
   // Qwen2.5 smalls refuse innocuous asks; a snubbed answer is treated as low
-  // confidence so a Tier-1 refusal escalates to the larger model.
+  // confidence so a Tier-1 refusal escalates to the larger model. Stress-tested
+  // in the 'Refusal gate' test group: common phrasings must match while
+  // positive idioms ("can't help but", "can't help thinking") must not.
   static final RegExp _refusalRe = RegExp(
-      r"i'?m\s+not\s+able|i'?m\s+sorry|(?:can'?t|cannot|unable)\s+"
-      r"(?:fulfill|assist|help|comply|answer)|not\s+allowed",
+      r"i(?:'?m| am)\s+not\s+able"
+      r"|(?:won'?t|will\s+not|would\s+not|can'?t|cannot)\s+be\s+able"
+      r"|i'?m\s+sorry"
+      r"|i'?m\s+afraid(?:\s+(?:i\s+)?(?:can'?t|cannot|unable|won'?t))?"
+      r"|i'?d\s+rather\s+not"
+      r"|(?:i|we)\s+don'?t\s+have\s+(?:the\s+)?ability"
+      r"|(?:can'?t|cannot|couldn'?t|could\s+not|won'?t|would\s+not|unable\s+to)\s+"
+      r"(?:fulfill|assist|help(?!\s+(?:but|think|feel|notice|wonder))|comply|"
+      r"answer|provide|generate|create|complete|do\s+(?:that|this|it)"
+      r"|give\s+you)"
+      r"|(?:refuse\w*|decline\w*)\s+to"
+      r"|as\s+(?:an\s+)?(?:ai|language\s+model|assistant)\b[^.!?\n]*"
+      r"(?:can'?t|cannot|won'?t|unable|not\s+able|not\s+allowed)"
+      r"|not\s+allowed"
+      r"|not\s+something\s+(?:i|we)\s+can\s+do",
       caseSensitive: false);
 
   final ModelRunner runner;
