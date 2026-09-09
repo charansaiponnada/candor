@@ -90,7 +90,8 @@ class _ChatScreenState extends State<ChatScreen> {
   /// Skills hub returns an example prompt; send it as a real query.
   Future<void> _openSkills() async {
     final example = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const SkillsScreen()),
+      MaterialPageRoute(
+          builder: (_) => SkillsScreen(store: widget.settingsStore)),
     );
     if (example != null && mounted) await _send(example);
   }

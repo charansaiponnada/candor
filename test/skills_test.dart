@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:candor/services/skills.dart';
@@ -76,6 +77,43 @@ test('length, weight, temperature', () async {
     test('days until a named date', () async {
       expect(await run('how many days until christmas'),
           matches(RegExp(r'^\d+ days until christmas\.')));
+    });
+  });
+
+  group('time', () {
+    test('world clock: named city, fixed-offset zone', () async {
+      expect(await run('what time is it in tokyo'),
+          matches(RegExp(r'^≈ \d{1,2}:\d{2} in Tokyo \(UTC\+9\)')));
+      expect(await run('time in london'),
+          matches(RegExp(r'^≈ \d{1,2}:\d{2} in London \(UTC\+0\)')));
+      expect(await run('what time is it in new york'),
+          matches(RegExp(r'^≈ \d{1,2}:\d{2} in New York \(UTC-5\)')));
+    });
+
+    test('world clock: unknown city stays with the model', () async {
+      expect(await run('what time is it in atlantis'), isNull);
+    });
+  });
+
+  group('chance', () {
+    test('dice rolls are deterministic under an injected rng', () async {
+      final e = SkillEngine(rng: math.Random(0));
+      expect(await runDetect(e, 'roll a d6'),
+          matches(RegExp(r'^You rolled \d+( and \d+)* \(total \d+\)\.$')));
+      expect(await runDetect(e, 'roll 2 dice'),
+          matches(RegExp(r'^You rolled \d+( and \d+)* \(total \d+\)\.$')));
+    });
+
+    test('coin flip under an injected rng', () async {
+      final e = SkillEngine(rng: math.Random(1));
+      expect(await runDetect(e, 'flip a coin'),
+          matches(RegExp(r'^Coin flip: (heads|tails)\.$')));
+    });
+
+    test('dice caps an absurd count', () async {
+      final e = SkillEngine(rng: math.Random(0));
+      expect(await runDetect(e, 'roll 500 dice'),
+          matches(RegExp(r'^You rolled \d+( and \d+){11} \(total \d+\)\.$')));
     });
   });
 

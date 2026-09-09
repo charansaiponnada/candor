@@ -64,4 +64,11 @@ class DeviceStateMonitor {
   Future<List<String>> listModels() async {
     return (await _channel.invokeListMethod<String>('listModels')) ?? const [];
   }
+
+  /// Size in bytes of each prepared model (0 when not yet copied to storage).
+  Future<Map<String, int>> modelSizes() async {
+    final raw =
+        await _channel.invokeMapMethod<String, int>('modelSizes') ?? const {};
+    return raw;
+  }
 }

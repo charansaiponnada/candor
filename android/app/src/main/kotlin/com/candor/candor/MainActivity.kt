@@ -25,6 +25,14 @@ class MainActivity : FlutterActivity() {
                     "getBatteryPercent" -> result.success(batteryPercent())
                     "getThermalStatus" -> result.success(thermalStatus())
                     "listModels" -> result.success(listModels())
+                    "modelSizes" -> {
+                        val dir = File(filesDir, "models")
+                        val sizes = mutableMapOf<String, Long>()
+                        if (dir.exists()) {
+                            dir.listFiles()?.forEach { sizes[it.name] = it.length() }
+                        }
+                        result.success(sizes)
+                    }
                     "prepareModel" -> {
                         val name = call.argument<String>("name")
                         if (name == null) {

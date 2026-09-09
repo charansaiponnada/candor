@@ -18,13 +18,15 @@ class ToolAction {
   final String recipient; // sms
   final String body; // sms / email
   final String url; // website
+  final String action; // deviceControl: android.settings.* action name
 
   const ToolAction(this.kind, this.label,
       {this.packages = const [],
       this.seconds = 0,
       this.recipient = '',
       this.body = '',
-      this.url = ''});
+      this.url = '',
+      this.action = ''});
 }
 
 /// Cheap, keyword-based intent classifier. Matches only when there is a
@@ -55,6 +57,25 @@ class ToolDetector {
       r'^(?:email|mail|send\s+an?\s+email)(?:\s+(?:to\s+)?(?:the\s+)?(\w+))?'
       r'(?:\s+(?:about|that|saying)\s+(.+))?',
       caseSensitive: false);
+
+  static final RegExp _settingsRe = RegExp(
+      r'^(?:open|show|launch)\s+(?:the\s+)?(wifi|wi-fi|bluetooth|display|sound|'
+      r'volume|location|notifications?|network|security|apps)\s+settings\s*\??$',
+      caseSensitive: false);
+
+  static const Map<String, String> _settingsActions = {
+    'wifi': 'android.settings.WIFI_SETTINGS',
+    'wi-fi': 'android.settings.WIFI_SETTINGS',
+    'bluetooth': 'android.settings.BLUETOOTH_SETTINGS',
+    'display': 'android.settings.DISPLAY_SETTINGS',
+    'sound': 'android.settings.SOUND_SETTINGS',
+    'volume': 'android.settings.SOUND_SETTINGS',
+    'location': 'android.settings.LOCATION_SOURCE_SETTINGS',
+    'notifications': 'android.settings.APP_NOTIFICATION_SETTINGS',
+    'network': 'android.settings.WIRELESS_SETTINGS',
+    'security': 'android.settings.SECURITY_SETTINGS',
+    'apps': 'android.settings.MANAGE_ALL_APPLICATIONS_SETTINGS',
+  };
 
   static final Map<String, List<String>> _packages = {
     // first candidate that resolves is launched (Samsung ships no AOSP camera)
@@ -128,6 +149,13 @@ class ToolDetector {
           recipient: recipient, body: body);
     }
 
+    final settings = _settingsRe.firstMatch(q);
+    if (settings != null) {
+      final name = settings.group(1)!.toLowerCase();
+      return ToolAction(ToolKind.deviceControl, 'Opening $name settings',
+          action: _settingsActions[name]!);
+    }
+
     return null;
   }
 
@@ -188,6 +216,9 @@ class ToolExecutor {
             action: 'android.intent.action.VIEW',
             data: a.url.contains('://') ? a.url : 'https://${a.url}',
           ).launch();
+          return null;
+        case ToolKind.deviceControl:
+          await AndroidIntent(action: a.action).launch();
           return null;
         default:
           return null; // skill kinds run via SkillEngine, not platform intents

@@ -68,6 +68,12 @@ class SettingsStore extends ChangeNotifier {
   bool onboardingDone = false;
   String themeMode = 'system'; // 'system' | 'light' | 'dark'
 
+  // Sampling (Prompt Lab). Per-tier so the sandbox can compare behaviour.
+  double t1Temp = 0.7, t2Temp = 0.7;
+  double t1TopP = 0.9, t2TopP = 0.9;
+  int t1TopK = 40, t2TopK = 40;
+  double t1RepeatPenalty = 1.1, t2RepeatPenalty = 1.1;
+
   SettingsStore(this.file);
 
   /// In-memory defaults; never saved (used for tests / no-file constructors).
@@ -91,6 +97,14 @@ class SettingsStore extends ChangeNotifier {
       useGpu = j['useGpu'] as bool? ?? false;
       onboardingDone = j['onboardingDone'] as bool? ?? false;
       themeMode = j['themeMode'] as String? ?? 'system';
+      t1Temp = (j['t1Temp'] as num?)?.toDouble() ?? 0.7;
+      t2Temp = (j['t2Temp'] as num?)?.toDouble() ?? 0.7;
+      t1TopP = (j['t1TopP'] as num?)?.toDouble() ?? 0.9;
+      t2TopP = (j['t2TopP'] as num?)?.toDouble() ?? 0.9;
+      t1TopK = j['t1TopK'] as int? ?? 40;
+      t2TopK = j['t2TopK'] as int? ?? 40;
+      t1RepeatPenalty = (j['t1RepeatPenalty'] as num?)?.toDouble() ?? 1.1;
+      t2RepeatPenalty = (j['t2RepeatPenalty'] as num?)?.toDouble() ?? 1.1;
     } catch (_) {
       // Broken settings -> defaults; no throw on startup.
     }
@@ -106,7 +120,21 @@ class SettingsStore extends ChangeNotifier {
       'useGpu': useGpu,
       'onboardingDone': onboardingDone,
       'themeMode': themeMode,
+      't1Temp': t1Temp,
+      't2Temp': t2Temp,
+      't1TopP': t1TopP,
+      't2TopP': t2TopP,
+      't1TopK': t1TopK,
+      't2TopK': t2TopK,
+      't1RepeatPenalty': t1RepeatPenalty,
+      't2RepeatPenalty': t2RepeatPenalty,
     }));
     notifyListeners();
   }
+
+  /// The sampling params for a tier (used by ModelRunner + Prompt Lab).
+  ({double temperature, double topP, int topK, double repeatPenalty})
+      sampling(Tier tier) => tier == Tier.tier1
+          ? (temperature: t1Temp, topP: t1TopP, topK: t1TopK, repeatPenalty: t1RepeatPenalty)
+          : (temperature: t2Temp, topP: t2TopP, topK: t2TopK, repeatPenalty: t2RepeatPenalty);
 }

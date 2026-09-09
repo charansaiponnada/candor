@@ -49,6 +49,19 @@ void main() {
     expect(a.body, 'the demo');
   });
 
+  test('routes device-control settings intents', () {
+    final wifi = detector.detect('open wifi settings')!;
+    expect(wifi.kind, ToolKind.deviceControl);
+    expect(wifi.action, 'android.settings.WIFI_SETTINGS');
+    final bt = detector.detect('show bluetooth settings')!;
+    expect(bt.kind, ToolKind.deviceControl);
+    expect(bt.action, 'android.settings.BLUETOOTH_SETTINGS');
+    expect(detector.detect('open the location settings')!.action,
+        'android.settings.LOCATION_SOURCE_SETTINGS');
+    // not a match if "settings" is read as an ordinary noun
+    expect(detector.detect('open source welcome packet'), isNull);
+  });
+
   test('ordinary questions are never routed to tools', () {
     expect(detector.detect('What is the square root of 144?'), isNull);
     expect(detector.detect('Explain recursion to a 12-year-old'), isNull);

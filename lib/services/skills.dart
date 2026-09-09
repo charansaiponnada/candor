@@ -20,11 +20,13 @@ IconData toolIcon(ToolKind kind) => switch (kind) {
       ToolKind.sms => Icons.sms_rounded,
       ToolKind.email => Icons.mail_rounded,
       ToolKind.website => Icons.public_rounded,
+      ToolKind.deviceControl => Icons.tune_rounded,
       ToolKind.calculate => Icons.calculate_rounded,
       ToolKind.converter => Icons.swap_horiz_rounded,
       ToolKind.dateTime => Icons.event_rounded,
       ToolKind.note => Icons.sticky_note_2_rounded,
       ToolKind.textTool => Icons.text_fields_rounded,
+      ToolKind.random => Icons.casino_rounded,
     };
 
 /// A skill's hub-screen card and its example prompts.
@@ -51,6 +53,9 @@ const skillsCatalog = [
   Skill(ToolKind.website, 'Websites',
       'Jump straight to a site by name or address.',
       ['Open github.com', 'Visit flutter.dev/docs']),
+  Skill(ToolKind.deviceControl, 'Device controls',
+      'Open system settings — wifi, bluetooth, display and more.',
+      ['Open wifi settings', 'Open bluetooth settings']),
   Skill(ToolKind.email, 'Email',
       'Draft an email, with or without a recipient.',
       ['Email the team about the demo']),
@@ -69,6 +74,12 @@ const skillsCatalog = [
   Skill(ToolKind.textTool, 'Text helpers',
       'Uppercase, reverse or word-count a phrase.',
       ['Shout candor is great', 'Reverse the text hello', 'Count the words in this sentence']),
+  Skill(ToolKind.dateTime, 'World clock',
+      'The current time in any major city — fully offline.',
+      ['What time is it in Tokyo?', 'Time in London now']),
+  Skill(ToolKind.random, 'Chance',
+      'Roll dice or flip a coin — real randomness, on-device.',
+      ['Roll 2 dice', 'Flip a coin']),
 ];
 
 /// A detected skill trigger and the data needed to run it.
@@ -83,8 +94,9 @@ class SkillAction {
 /// unit tables, date math, a JSON notes file. Returns a display string — or a
 /// short failure line the chat card shows verbatim.
 class SkillEngine {
-  SkillEngine({Future<File> Function()? notesFile})
-      : _notesFile = notesFile ?? _defaultNotesFile;
+  SkillEngine({Future<File> Function()? notesFile, math.Random? rng})
+      : _notesFile = notesFile ?? _defaultNotesFile,
+        _rng = rng ?? math.Random();
 
   static Future<File> _defaultNotesFile() async =>
       File('${(await getApplicationDocumentsDirectory()).path}/notes.json');
@@ -133,6 +145,17 @@ class SkillEngine {
   static final _countRe =
       RegExp(r'^count\s+(?:the\s+)?words?\s+in\s+(.+)$', caseSensitive: false);
 
+  static final _tzRe = RegExp(
+      r"^(?:(?:what\s+time\s+(?:is\s+it|iz)?\s+in|time\s+in|current\s+time\s+in|time\s+at)\s+)([a-z][a-z\s'.-]*?)\s*\??$",
+      caseSensitive: false);
+  static final _diceRe = RegExp(
+      r'^(?:roll\s+)?(?:a\s+)?(?:(\d{1,3})\s*d(?:ice|ie)?|d(\d{1,3}))\s*\??$',
+      caseSensitive: false);
+  static final _coinRe = RegExp(r'^(?:flip|toss)\s+(?:a\s+)?(?:coin)?\s*\??$',
+      caseSensitive: false);
+
+  final math.Random _rng;
+
   SkillAction? detect(String query) {
     final q = query.trim();
     if (q.isEmpty) return null;
@@ -167,6 +190,14 @@ class SkillEngine {
     if (_timeRe.hasMatch(q)) return SkillAction(ToolKind.dateTime, 'current time');
     if (_dateRe.hasMatch(q)) return SkillAction(ToolKind.dateTime, 'today');
 
+    final tz = _tzRe.firstMatch(q);
+    if (tz != null) {
+      final city = tz.group(1)!.trim().toLowerCase();
+      if (_zones.containsKey(city)) {
+        return SkillAction(ToolKind.dateTime, 'tz $city');
+      }
+    }
+
     final until = _untilRe.firstMatch(q);
     if (until != null && _parseDate(until.group(1)!.trim()) != null) {
       return SkillAction(ToolKind.dateTime, 'until ${until.group(1)!.trim()}');
@@ -194,6 +225,13 @@ class SkillEngine {
       }
     }
 
+    final dice = _diceRe.firstMatch(q);
+    if (dice != null) {
+      return SkillAction(
+          ToolKind.random, 'dice ${dice.group(1) ?? dice.group(2) ?? '1'}');
+    }
+    if (_coinRe.hasMatch(q)) return SkillAction(ToolKind.random, 'coin');
+
     return null;
   }
 
@@ -210,6 +248,15 @@ class SkillEngine {
         return _convert(a.label);
       case ToolKind.dateTime:
         return _dateTime(a.label);
+      case ToolKind.random:
+        if (a.label == 'coin') {
+          return 'Coin flip: ${_rng.nextBool() ? 'heads' : 'tails'}.';
+        }
+        final count = int.tryParse(a.label.split(' ').last) ?? 1;
+        final rolls = [for (var i = 0; i < count.clamp(1, 12); i++) _rng.nextInt(6) + 1];
+        return rolls.length == 1
+            ? 'You rolled a ${rolls.single}.'
+            : 'You rolled ${rolls.join(' and ')} (total ${rolls.fold(0, (a2, b) => a2 + b)}).';
       case ToolKind.note:
         return a.label.isEmpty ? _readNotes() : _saveNote(a.label);
       case ToolKind.textTool:
@@ -312,7 +359,42 @@ class SkillEngine {
 
   // ---- date & time ----------------------------------------------------
 
+  // ---- world time (fixed offsets, no DST — honest, offline) ------------
+
+  static const Map<String, double> _zones = {
+    'london': 0, 'uk': 0, 'dublin': 0, 'lisbon': 0, 'reykjavik': 0,
+    'madrid': 1, 'paris': 1, 'berlin': 1, 'rome': 1, 'amsterdam': 1,
+    'lagos': 1, 'stockholm': 1, 'vienna': 1, 'brussels': 1, 'zurich': 1,
+    'cairo': 2, 'athens': 3, 'istanbul': 3, 'moscow': 3, 'kiev': 3,
+    'dubai': 4, 'tehran': 3.5, 'kabul': 4.5,
+    'mumbai': 5.5, 'delhi': 5.5, 'new delhi': 5.5, 'calcutta': 5.5, 'karachi': 5,
+    'dhaka': 6, 'dakar': 0, 'jakarta': 7, 'bangkok': 7, 'hanoi': 7,
+    'singapore': 8, 'beijing': 8, 'hong kong': 8, 'manila': 8,
+    'shanghai': 8, 'perth': 8, 'kuala lumpur': 8, 'taipei': 8,
+    'tokyo': 9, 'seoul': 9, 'osaka': 9, 'sydney': 11, 'melbourne': 11,
+    'auckland': 12, 'fiji': 12,
+    'honolulu': -10, 'anchorage': -9,
+    'los angeles': -8, 'san francisco': -8, 'seattle': -8, 'vancouver': -8,
+    'denver': -7, 'salt lake city': -7,
+    'chicago': -6, 'dallas': -6, 'houston': -6, 'mexico city': -6,
+    'new york': -5, 'toronto': -5, 'miami': -5, 'boston': -5,
+    'bogota': -5, 'lima': -5, 'quito': -5,
+    'caracas': -4, 'santiago': -3, 'buenos aires': -3, 'sao paulo': -3,
+    'rio de janeiro': -3, 'montevideo': -3,
+  };
+
   String _dateTime(String spec) {
+    if (spec.startsWith('tz ')) {
+      final city = spec.substring(3).trim();
+      final off = _zones[city]!;
+      final local = DateTime.now().toUtc().add(
+          Duration(milliseconds: (off * 3600 * 1000).round()));
+      final hh = local.hour.toString().padLeft(2, '0');
+      final mm = local.minute.toString().padLeft(2, '0');
+      final sign = off < 0 ? '-' : '+';
+      final label = city.split(' ').map(_title).join(' ');
+      return '≈ $hh:$mm in $label (UTC$sign${off.abs().toStringAsFixed(off == off.roundToDouble() ? 0 : 1)})';
+    }
     final now = DateTime.now();
     if (spec == 'current time') {
       final hh = now.hour.toString().padLeft(2, '0');
@@ -592,3 +674,8 @@ String fmtNumber(double v) {
 }
 
 String reverseText(String s) => String.fromCharCodes(s.runes.toList().reversed);
+
+String _title(String s) => s
+    .split(' ')
+    .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1))
+    .join(' ');
