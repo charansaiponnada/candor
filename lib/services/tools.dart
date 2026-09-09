@@ -189,6 +189,8 @@ class ToolExecutor {
             data: a.url.contains('://') ? a.url : 'https://${a.url}',
           ).launch();
           return null;
+        default:
+          return null; // skill kinds run via SkillEngine, not platform intents
       }
     } catch (e) {
       debugPrint('ToolExecutor ${a.kind.name} failed: $e');

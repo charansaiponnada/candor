@@ -24,12 +24,16 @@ lib/
     router.dart            decision table + EscalationLog (JSON-lines file)
     tools.dart             tool context: regex intent detector + intent executor
                            (open app, set timer, SMS/email draft, open website)
+    skills.dart            on-device skills engine: calculator (shunting-yard),
+                           unit converter, date/countdown, memos-to-disk, text helpers
     stores.dart            JSON-file persistence: ChatStore (conversations.json,
                            corrupt file preserved as .bak) + SettingsStore (settings.json)
   screens/
-    chat_screen.dart       conversation-backed Claude-style chat: borderless answers,
-                           quiet `● Tier-1 · 12.4s · conf 0.95` attribution, typing dots,
-                           multi-turn history fed back as ChatML context
+    chat_screen.dart       conversation-backed Claude-style chat: markdown answers,
+                           long-press copy/share, per-row reveal animation, honest
+                           `● Tier-1 · 12.4s · conf 0.95` attribution, tappable tier pill
+    onboarding_screen.dart 3-panel first-run intro (private on-device / one honest voice)
+    skills_screen.dart     skills hub: tile grid, tap an example, it runs in the chat
     conversations_screen.dart chat history list: newest-first, swipe-to-delete, "New chat"
     settings_screen.dart   name/persona, per-tier model dropdowns, GPU (Vulkan) switch
                            with a live capability line
@@ -40,8 +44,8 @@ android/…/MainActivity.kt  one MethodChannel "candor/device":
                            prepareModel (stream-copy bundled GGUF out of assets)
                            listModels (assets/models for the picker)
 test/                      decision-table + log + prompt-assembly tests with stubbed
-                           runner/monitor + store/conversation/settings tests
-                           (57 tests total, all pass)
+                           runner/monitor + store/conversation/settings/skills tests
+                           (102 tests total, all pass)
 ```
 
 ### Router decision table (PRD §6.4)
@@ -94,6 +98,40 @@ so the manifest declares both that legacy name and `android.permission.SET_ALARM
 If no app can handle an intent, the card shows "Couldn't do that" instead of a
 crypto error.
 
+## Skills (Gallery-style, fully on-device)
+
+A deterministic skill engine (`services/skills.dart`) answers utility asks
+**without any model pass** — the same "skimmable, instantly useful" pattern as
+Google AI Edge Gallery:
+```
+- "2 + 3 * 4"                       → 2 + 3 * 4 = 14        (shunting-yard evaluator)
+- "convert 5 miles to km"           → 5 miles = 8.04672 km  (length/weight/volume/speed/time/°C·°F·K)
+- "what is the current time"        → It's 14:32 — Tuesday.
+- "how many days until christmas"   → 173 days until christmas.  (next annual occurrence)
+- "remember that milk expires Friday" → saved to memos.json; "show my notes" reads it back
+- "shout candor is great"           → CANDOR IS GREAT       (+ reverse text, word count)
+```
+Detection is regex→executor, ordered after platform tools (a "set a timer"
+ask never becomes a skill). Fewest-guess, always-honest: a parse failure
+answers "I couldn't parse that expression." instead of inventing a number.
+The **skills hub** (grid icon in the chat bar) shows every skill with example
+prompts — tap one and it's sent as a real query. The same icons power the
+tool/skill cards in chat (`toolIcon` in skills.dart).
+
+Utility answers render as regular answer text; platform tool actions render as
+distinct action cards (see above).
+
+## First-run & polish
+
+- **Onboarding** (3 panels — "Private by design / Two minds, one honest
+  voice / Candid about itself") shows once, then the chat opens directly;
+  the flag persists in settings.json.
+- **Assistant replies are rendered Markdown** (`flutter_markdown_plus`,
+  offline). Long-press any message to **copy** it or **share** it via the
+  Android share sheet (ACTION_SEND, no network needed). Rows fade in once.
+- **Tappable honesty pill** — the `● Tier-1 · 12.4s · conf 0.95` attribution
+  opens a bottom sheet explaining what the tier and confidence actually mean.
+
 ## Chat history & personalization
 
 - **Multi-conversation chat history.** Every completed turn lands in
@@ -114,6 +152,14 @@ crypto error.
 
 ## Known limitations / decisions (PRD §9 asks to state these)
 
+- **Multimodal is not in this build.** AI Edge Gallery's killer demo is
+  Gemma 3 (vision): attach a photo, ask about it, all on-device. `llama_flutter_android`
+  (0.2.6) exposes a **text-only** API for Qwen — its Dart interface and Kotlin
+  bridge stream tokens, with no image-input path. True on-device image Q&A
+  (Gemma3 GGUF + image preprocessor) requires forking the plugin, adding a
+  vision input channel in both Dart and Kotlin, and bundling a ~2 GB VLM GGUF.
+  Everything else the competition demos (chat, tools, skills, markdown, candy
+  UI) is implemented here without that fork.
 - **Confidence proxy is self-assessed, not logprob-based.** The `llama_flutter_android`
   plugin streams `String` tokens and exposes no token logprobs, so the PRD's
   avg/min-logprob confidence is impossible without forking the plugin. Instead,
@@ -155,13 +201,15 @@ powershell -ExecutionPolicy Bypass -File tools/download_models.ps1
 
 # 2) build / install on a connected device (minSdk 29+)
 flutter pub get
-flutter build apk --debug
+flutter build apk
 flutter install
 ```
 
 First launch copies the bundled models into app storage (streaming, ~seconds);
 the splash shows "Preparing on-device models…". Tiers load on demand at first
-query.
+query. The release APK bundles the models, so it's ~1.5 GB by design. The
+launcher icon (clay `#A64B2A` with a white "C", adaptive) is generated by
+`flutter_launcher_icons` from `assets/icon/`.
 
 ## Pitch data (measured on SM-E366B, Q4_K_M, CPU-only)
 

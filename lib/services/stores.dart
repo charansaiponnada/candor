@@ -7,6 +7,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models.dart';
@@ -57,13 +58,15 @@ class ChatStore {
   }
 }
 
-class SettingsStore {
+class SettingsStore extends ChangeNotifier {
   final File file;
   String displayName = '';
   String persona = '';
   String tier1Model = tier1DefaultModel;
   String tier2Model = tier2DefaultModel;
   bool useGpu = false;
+  bool onboardingDone = false;
+  String themeMode = 'system'; // 'system' | 'light' | 'dark'
 
   SettingsStore(this.file);
 
@@ -86,6 +89,8 @@ class SettingsStore {
       tier1Model = j['tier1Model'] as String? ?? tier1DefaultModel;
       tier2Model = j['tier2Model'] as String? ?? tier2DefaultModel;
       useGpu = j['useGpu'] as bool? ?? false;
+      onboardingDone = j['onboardingDone'] as bool? ?? false;
+      themeMode = j['themeMode'] as String? ?? 'system';
     } catch (_) {
       // Broken settings -> defaults; no throw on startup.
     }
@@ -99,6 +104,9 @@ class SettingsStore {
       'tier1Model': tier1Model,
       'tier2Model': tier2Model,
       'useGpu': useGpu,
+      'onboardingDone': onboardingDone,
+      'themeMode': themeMode,
     }));
+    notifyListeners();
   }
 }

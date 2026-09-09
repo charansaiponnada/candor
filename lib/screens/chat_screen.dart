@@ -1,16 +1,22 @@
 import 'dart:async';
 
+import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart' hide Router;
+import 'package:flutter/services.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 import '../models.dart';
 import '../services/device_state.dart';
 import '../services/model_runner.dart';
 import '../services/router.dart';
+import '../services/skills.dart';
+import '../services/speech.dart';
 import '../services/stores.dart';
 import '../services/tools.dart';
 import 'conversations_screen.dart';
 import 'debug_panel.dart';
 import 'settings_screen.dart';
+import 'skills_screen.dart';
 
 /// Suggested first prompts. Chosen to demo both paths: the third typically
 /// trips Tier-1's low/missing confidence and escalates to Tier-2; the last
@@ -81,6 +87,14 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// Skills hub returns an example prompt; send it as a real query.
+  Future<void> _openSkills() async {
+    final example = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const SkillsScreen()),
+    );
+    if (example != null && mounted) await _send(example);
+  }
+
   /// Persist the thread: derive a title from the first user message and make
   /// sure the conversation lives in the store before saving.
   void _persist() {
@@ -138,6 +152,24 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    // On-device skills (PRD §6.7): calculator, converter, date/time, notes,
+    // text helpers — deterministic, offline, no model pass.
+    final skill = _skills.detect(query);
+    if (skill != null) {
+      draft.toolKind = skill.kind;
+      final result = await _skills.run(skill);
+      if (!mounted) return;
+      setState(() {
+        draft
+          ..streaming = false
+          ..text = result;
+        _sending = false;
+      });
+      _persist();
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: true));
+      return;
+    }
+
     try {
       final result = await widget.router.answer(query,
           history: history, onToken: (t) => _appendToken(draft, t));
@@ -172,6 +204,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   static const _detector = ToolDetector();
   static const _executor = ToolExecutor();
+  static final _skills = SkillEngine();
 
   void _scrollToBottom({bool animated = false}) {
     if (!_scroll.hasClients) return;
@@ -229,6 +262,11 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.grid_view_outlined),
+            tooltip: 'Skills',
+            onPressed: _openSkills,
+          ),
+          IconButton(
             icon: const Icon(Icons.chat_bubble_outline),
             tooltip: 'Chat history',
             onPressed: _openConversations,
@@ -261,7 +299,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                     itemCount: _messages.length,
-                    itemBuilder: (_, i) => _ChatRow(message: _messages[i]),
+                    itemBuilder: (_, i) =>
+                        _Reveal(child: _ChatRow(message: _messages[i])),
                   ),
           ),
           _Composer(controller: _input, sending: _sending, onSend: _send),
@@ -369,6 +408,43 @@ class _Suggestion extends StatelessWidget {
   }
 }
 
+/// One-shot entrance (fade + rise) for newly appended messages. Built with
+/// state per row so existing rows never replay when the list grows.
+class _Reveal extends StatefulWidget {
+  final Widget child;
+  const _Reveal({required this.child});
+
+  @override
+  State<_Reveal> createState() => _RevealState();
+}
+
+class _RevealState extends State<_Reveal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 260))
+    ..forward();
+  late final Animation<double> _a =
+      CurvedAnimation(parent: _c, curve: Curves.easeOutCubic);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _a,
+      child: SlideTransition(
+        position: Tween(begin: const Offset(0, 0.06), end: Offset.zero)
+            .animate(_a),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 class _ChatRow extends StatelessWidget {
   final ChatMessage message;
   const _ChatRow({required this.message});
@@ -380,105 +456,188 @@ class _ChatRow extends StatelessWidget {
     if (message.fromUser) {
       return Align(
         alignment: Alignment.centerRight,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 18, left: 48),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: cs.primaryContainer,
-            borderRadius: BorderRadius.circular(20),
+        child: GestureDetector(
+          onLongPress: () => _showMessageActions(context, message.text),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 18, left: 48),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: cs.primaryContainer,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(message.text,
+                  style: TextStyle(color: cs.onPrimaryContainer, height: 1.35)),
+            ),
           ),
-          child: Text(message.text,
-              style: TextStyle(color: cs.onPrimaryContainer, height: 1.35)),
         ),
       );
     }
 
     return Align(
       alignment: Alignment.centerLeft,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (message.streaming)
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(18),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (message.streaming)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [const _TypingDots(), const SizedBox(width: 10)],
+                ),
+              )
+            else if (message.text.isNotEmpty)
+              GestureDetector(
+                onLongPress: () => _showMessageActions(context, message.text),
+                child: _Markdown(text: message.text),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [const _TypingDots(), const SizedBox(width: 10)],
-              ),
-            )
-          else if (message.text.isNotEmpty)
-            Text(message.text,
-                style: TextStyle(
-                    fontSize: 15, height: 1.5, color: cs.onSurface)),
-          if (message.toolKind != null && !message.streaming)
-            Container(
-              margin: const EdgeInsets.only(top: 8, bottom: 18),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: cs.tertiaryContainer,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(_toolIcon(message.toolKind!),
-                      size: 18, color: cs.onTertiaryContainer),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(message.text,
-                        style: TextStyle(
-                            fontSize: 15,
-                            color: cs.onTertiaryContainer,
-                            height: 1.35)),
+            if (message.toolKind != null && !message.streaming)
+              GestureDetector(
+                onLongPress: () => _showMessageActions(context, message.text),
+                child: Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 18),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: cs.tertiaryContainer,
+                    borderRadius: BorderRadius.circular(18),
                   ),
-                ],
-              ),
-            ),
-          if (message.tier != null && !message.streaming)
-            Padding(
-              padding: const EdgeInsets.only(top: 6, bottom: 18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          color: _tierColor(message.tier!, cs),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${message.tier!.label}'
-                        '  ·  ${(message.latencyMs ?? 0) / 1000} s'
-                        '${_conf(message.confidence)}',
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelSmall
-                            ?.copyWith(color: cs.onSurfaceVariant),
+                      Icon(toolIcon(message.toolKind!),
+                          size: 18, color: cs.onTertiaryContainer),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(message.text,
+                            style: TextStyle(
+                                fontSize: 15,
+                                color: cs.onTertiaryContainer,
+                                height: 1.35)),
                       ),
                     ],
                   ),
-                  if (message.note != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(message.note!,
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(color: cs.onSurfaceVariant)),
-                    ),
-                ],
+                ),
               ),
+            if (message.tier != null && !message.streaming)
+              _TierPill(message: message),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Assistant replies render as Markdown (code blocks, lists, emphasis stay
+/// readable); user messages stay plain bubbles.
+class _Markdown extends StatelessWidget {
+  final String text;
+  const _Markdown({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final base = MarkdownStyleSheet.fromTheme(Theme.of(context));
+    final style = base.copyWith(
+      p: TextStyle(fontSize: 15, height: 1.5, color: cs.onSurface),
+      code: TextStyle(
+        fontSize: 13,
+        color: cs.onSurface,
+        backgroundColor: cs.surfaceContainerHighest,
+        fontFamily: 'monospace',
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      codeblockPadding: const EdgeInsets.all(10),
+      blockquoteDecoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      blockquotePadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      listBullet: const TextStyle(height: 1.5),
+    );
+    return MarkdownBody(
+      data: text,
+      styleSheet: style,
+      onTapLink: (text, href, title) {
+        // Offline-first: links don't launch anything.
+      },
+    );
+  }
+}
+
+/// The honesty pill: a tappable chip that reveals why this tier answered.
+/// Tapping it is the "make the model explain itself" moment.
+class _TierPill extends StatelessWidget {
+  final ChatMessage message;
+  const _TierPill({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tier = message.tier!;
+    final lat = (message.latencyMs ?? 0) / 1000;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Material(
+            color: cs.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _showTierInfo(context, message),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: _tierColor(tier, cs),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${tier.label}  ·  ${lat.toStringAsFixed(1)} s'
+                      '${_conf(message.confidence)}',
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(color: cs.onSurfaceVariant),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.info_outline,
+                        size: 13, color: cs.onSurfaceVariant),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (message.note != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(message.note!,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: cs.onSurfaceVariant)),
             ),
         ],
       ),
@@ -489,18 +648,125 @@ class _ChatRow extends StatelessWidget {
       (c == null || c <= 0) ? '' : '  ·  conf ${c.toStringAsFixed(2)}';
 }
 
+void _showMessageActions(BuildContext context, String text) {
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.copy_rounded),
+            title: const Text('Copy'),
+            onTap: () async {
+              Navigator.pop(ctx);
+              await Clipboard.setData(ClipboardData(text: text));
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                    content: Text('Copied to clipboard'), duration: Duration(seconds: 1)));
+              }
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.share_rounded),
+            title: const Text('Share…'),
+            onTap: () async {
+              Navigator.pop(ctx);
+              await _shareText(text);
+            },
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Android share sheet via the system ACTION_SEND chooser (offline — the text
+/// goes to whatever share target the user picks, no Candor network involved).
+Future<void> _shareText(String text) async {
+  try {
+    await AndroidIntent(
+      action: 'android.intent.action.SEND',
+      type: 'text/plain',
+      arguments: {'android.intent.extra.TEXT': text},
+    ).launchChooser('Share via');
+  } catch (_) {
+    // No share targets on this device; drop silently.
+  }
+}
+
+/// Tapping the pill explains *why* this tier answered (PRD: the model-said-
+/// so honesty moment). Text stays in one place so style + tests align.
+String _tierExplanation(FinalTier tier) => switch (tier) {
+      FinalTier.tier1 => 'The small on-device model (0.5B) answered with high '
+          'confidence, so the larger model was not needed. Fastest and most '
+          'efficient path.',
+      FinalTier.tier2 => 'The small model was unsure or stuck, so Candor '
+          'escalated to the larger on-device model (1.5B) for a better answer.',
+      FinalTier.tier1Constrained => 'The small model was unsure, but this '
+          'device is constrained (low battery or heat), so the larger model '
+          'was skipped to protect it. This answer may be less accurate.',
+    };
+
+void _showTierInfo(BuildContext context, ChatMessage message) {
+  final cs = Theme.of(context).colorScheme;
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                      color: _tierColor(message.tier!, cs),
+                      shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 8),
+                Text(message.tier!.label,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(_tierExplanation(message.tier!),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(height: 1.5)),
+            const SizedBox(height: 12),
+            Text(
+              'This answer: '
+              '${((message.latencyMs ?? 0) / 1000).toStringAsFixed(1)} s'
+              '${_TierPill._conf(message.confidence)}'
+              '${message.note == null ? '' : '  ·  ${message.note}'}',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelMedium
+                  ?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 Color _tierColor(FinalTier tier, ColorScheme cs) => switch (tier) {
       FinalTier.tier1 => cs.secondary,
       FinalTier.tier2 => cs.primary,
       FinalTier.tier1Constrained => cs.error,
-    };
-
-IconData _toolIcon(ToolKind kind) => switch (kind) {
-      ToolKind.launchApp => Icons.open_in_new_rounded,
-      ToolKind.setTimer => Icons.timer_rounded,
-      ToolKind.sms => Icons.sms_rounded,
-      ToolKind.email => Icons.mail_rounded,
-      ToolKind.website => Icons.public_rounded,
     };
 
 class _TypingDots extends StatefulWidget {
@@ -552,12 +818,64 @@ class _TypingDotsState extends State<_TypingDots>
   }
 }
 
-class _Composer extends StatelessWidget {
+class _Composer extends StatefulWidget {
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onSend;
   const _Composer(
       {required this.controller, required this.sending, required this.onSend});
+
+  @override
+  State<_Composer> createState() => _ComposerState();
+}
+
+class _ComposerState extends State<_Composer> {
+  final SpeechInput _speech = SpeechInput();
+  bool _listening = false;
+  bool _micSupported = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _speech.available.then((ok) {
+      if (mounted) setState(() => _micSupported = ok);
+    });
+  }
+
+  @override
+  void dispose() {
+    _speech.stop();
+    super.dispose();
+  }
+
+  Future<void> _toggleSpeech() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+    try {
+      await _speech.start(
+        onPartial: (t) => widget.controller.text = t,
+        onError: (m) {
+          if (!mounted) return;
+          widget.controller.clear();
+          setState(() => _listening = false);
+          if (m == 'permission') {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Microphone permission is needed for voice input.')));
+          }
+        },
+      );
+      if (mounted) setState(() => _listening = true);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _listening = false);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Voice input isn\'t available on this device.')));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -574,9 +892,17 @@ class _Composer extends StatelessWidget {
           ),
           child: Row(
             children: [
+              IconButton(
+                tooltip: _listening ? 'Stop listening' : 'Speak',
+                onPressed: _micSupported ? _toggleSpeech : null,
+                icon: Icon(
+                  _listening ? Icons.stop_rounded : Icons.mic_none_rounded,
+                  color: _listening ? cs.error : null,
+                ),
+              ),
               Expanded(
                 child: TextField(
-                  controller: controller,
+                  controller: widget.controller,
                   minLines: 1,
                   maxLines: 4,
                   textInputAction: TextInputAction.send,
@@ -586,16 +912,16 @@ class _Composer extends StatelessWidget {
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(horizontal: 12),
                   ),
-                  onSubmitted: (_) => onSend(),
+                  onSubmitted: (_) => widget.onSend(),
                 ),
               ),
               AnimatedBuilder(
-                animation: controller,
+                animation: widget.controller,
                 builder: (_, _) => IconButton.filled(
-                  onPressed: controller.text.trim().isEmpty || sending
+                  onPressed: widget.controller.text.trim().isEmpty || widget.sending
                       ? null
-                      : onSend,
-                  icon: sending
+                      : widget.onSend,
+                  icon: widget.sending
                       ? const SizedBox(
                           width: 18,
                           height: 18,

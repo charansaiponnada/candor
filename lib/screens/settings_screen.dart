@@ -27,6 +27,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
       widget.runner.gpuCapability();
   late final Future<List<String>> _models = widget.runner.listModels();
 
+  // Controllers live for the screen's lifetime; recreating them per build
+  // killed the field's undo/cursor state on every rebuild.
+  late final TextEditingController _nameCtl =
+      TextEditingController(text: widget.store.displayName)
+        ..selection = TextSelection.collapsed(
+            offset: widget.store.displayName.length);
+  late final TextEditingController _personaCtl =
+      TextEditingController(text: widget.store.persona)
+        ..selection = TextSelection.collapsed(offset: widget.store.persona.length);
+
+  @override
+  void dispose() {
+    _nameCtl.dispose();
+    _personaCtl.dispose();
+    super.dispose();
+  }
+
   void _save() {
     widget.store
       ..displayName = _name.trim()
@@ -49,9 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _sectionTitle(context, 'You'),
           TextField(
             key: const ValueKey('display-name'),
-            controller: TextEditingController(text: _name)
-              ..selection =
-                  TextSelection.collapsed(offset: _name.length),
+            controller: _nameCtl,
             decoration: const InputDecoration(
               labelText: 'Name',
               helperText: 'Candor will address you by this name.',
@@ -64,9 +79,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 12),
           TextField(
-            controller: TextEditingController(text: _persona)
-              ..selection =
-                  TextSelection.collapsed(offset: _persona.length),
+            controller: _personaCtl,
             minLines: 2,
             maxLines: 4,
             decoration: const InputDecoration(
@@ -81,6 +94,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           const SizedBox(height: 20),
+          _sectionTitle(context, 'Appearance'),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                    value: 'system', icon: Icon(Icons.brightness_auto_outlined), label: Text('System')),
+                ButtonSegment(
+                    value: 'light', icon: Icon(Icons.light_mode_outlined), label: Text('Light')),
+                ButtonSegment(
+                    value: 'dark', icon: Icon(Icons.dark_mode_outlined), label: Text('Dark')),
+              ],
+              selected: {widget.store.themeMode},
+              onSelectionChanged: (sel) {
+                final mode = sel.first;
+                setState(() =>
+                    widget.store.themeMode = mode);
+                unawaited(widget.store
+                    .save()
+                    .catchError((_) {}));
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
           _sectionTitle(context, 'Models'),
           FutureBuilder<List<String>>(
             future: _models,

@@ -4,6 +4,9 @@
          (the legacy name the AlarmManager stack maps to). -->
     <uses-permission android:name="android.permission.SET_ALARM"/>
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM"/>
+    <!-- Voice input (live captioning). The recognizer is asked to use the
+         offline engine; no network permission exists anywhere in the app. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application
         android:label="Candor"
         android:name="${applicationName}"

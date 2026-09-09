@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart' hide Router;
 
 import 'screens/chat_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'services/device_state.dart';
 import 'services/model_runner.dart';
 import 'services/router.dart';
@@ -45,27 +46,79 @@ class CandorApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Candor',
-      theme: _theme(Brightness.light),
-      darkTheme: _theme(Brightness.dark),
-      themeMode: ThemeMode.system,
-      // "Candor" = warm clay seed (blind-demo colour, feels honest + human);
-      // full M3 role set generated from it.
-      home: FutureBuilder<AppServices>(
-        future: _services,
-        builder: (context, snap) {
-          if (snap.hasError) return _StartupView(error: '${snap.error}');
-          if (!snap.hasData) return const _StartupView();
-          return ChatScreen(
-            router: snap.data!.router,
-            monitor: snap.data!.monitor,
-            chatStore: snap.data!.chatStore,
-            settingsStore: snap.data!.settingsStore,
-            runner: snap.data!.runner,
-          );
-        },
-      ),
+    return FutureBuilder<AppServices>(
+      future: _services,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return MaterialApp(
+              title: 'Candor',
+              home: _StartupView(error: '${snap.error}'));
+        }
+        final services = snap.data;
+        if (services == null) {
+          return const MaterialApp(title: 'Candor', home: _StartupView());
+        }
+        // Theme follows the settings store so the Appearance picker in
+        // Settings applies instantly across the whole app.
+        return AnimatedBuilder(
+          animation: services.settingsStore,
+          builder: (_, _) => MaterialApp(
+            title: 'Candor',
+            theme: _theme(Brightness.light),
+            darkTheme: _theme(Brightness.dark),
+            themeMode: _themeMode(services.settingsStore.themeMode),
+            // "Candor" = warm clay seed (blind-demo colour, feels honest + human);
+            // full M3 role set generated from it.
+            home: _Root(services: services),
+          ),
+        );
+      },
+    );
+  }
+
+  static ThemeMode _themeMode(String mode) => switch (mode) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      };
+}
+
+/// Decides first-run onboarding vs. the main chat experience. Swapping the
+/// whole subtree keeps onboarding off the nav stack (back button can't return).
+class _Root extends StatefulWidget {
+  final AppServices services;
+  const _Root({required this.services});
+
+  @override
+  State<_Root> createState() => _RootState();
+}
+
+class _RootState extends State<_Root> {
+  bool _onboarded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _onboarded = widget.services.settingsStore.onboardingDone;
+  }
+
+  Future<void> _finishOnboarding() async {
+    final s = widget.services.settingsStore;
+    s.onboardingDone = true;
+    await s.save();
+    if (mounted) setState(() => _onboarded = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_onboarded) return OnboardingScreen(onDone: _finishOnboarding);
+    final ap = widget.services;
+    return ChatScreen(
+      router: ap.router,
+      monitor: ap.monitor,
+      chatStore: ap.chatStore,
+      settingsStore: ap.settingsStore,
+      runner: ap.runner,
     );
   }
 }
