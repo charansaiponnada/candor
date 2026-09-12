@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models.dart';
 import '../services/model_runner.dart';
 import '../services/stores.dart';
+import '../widgets/glass.dart';
 
 /// Prompt Lab — Gallery's lab for single-turn experiments, done on-device.
 /// Adjust sampling (temperature, top-k, top-p, repeat penalty) per tier,
@@ -98,15 +99,14 @@ class _PromptLabScreenState extends State<PromptLabScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
+      extendBodyBehindAppBar: true,
+      appBar: GlassAppBar(
         title: const Text('Prompt Lab'),
-        backgroundColor: Colors.transparent,
-        scrolledUnderElevation: 0,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        padding: const EdgeInsets.fromLTRB(16, 80, 16, 24),
         children: [
-          SegmentedButton<Tier>(
+          GlassSegmentedButton<Tier>(
             segments: const [
               ButtonSegment(value: Tier.tier1, label: Text('Tier-1 · 0.5B')),
               ButtonSegment(value: Tier.tier2, label: Text('Tier-2 · 1.5B')),
@@ -115,54 +115,59 @@ class _PromptLabScreenState extends State<PromptLabScreen> {
             onSelectionChanged: (sel) => _pickTier(sel.first),
           ),
           const SizedBox(height: 16),
-          TextField(
+          GlassTextArea(
             controller: _input,
             minLines: 2,
             maxLines: 5,
-            decoration: const InputDecoration(
-              hintText: 'A prompt to test…',
-              border: OutlineInputBorder(),
+            hintText: 'A prompt to test…',
+          ),
+          const SizedBox(height: 20),
+          GlassCard(
+            padding: const EdgeInsets.all(16),
+            surfaceLevel: GlassSurfaceLevel.level2,
+            border: GlassBorder.subtle,
+            child: Column(
+              children: [
+                _slider('Temperature', _temp, 0.0, 2.0, 0.05, (v) {
+                  setState(() => _temp = v);
+                  _save();
+                }),
+                _slider('Top-p', _topP, 0.0, 1.0, 0.05, (v) {
+                  setState(() => _topP = v);
+                  _save();
+                }),
+                _slider('Top-k', _topK.toDouble(), 1.0, 100.0, 1.0, (v) {
+                  setState(() => _topK = v.round());
+                  _save();
+                }),
+                _slider('Repeat penalty', _repPen, 1.0, 2.0, 0.05, (v) {
+                  setState(() => _repPen = v);
+                  _save();
+                }),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          _slider('Temperature', _temp, 0.0, 2.0, 0.05, (v) {
-            setState(() => _temp = v);
-            _save();
-          }),
-          _slider('Top-p', _topP, 0.0, 1.0, 0.05, (v) {
-            setState(() => _topP = v);
-            _save();
-          }),
-          _slider('Top-k', _topK.toDouble(), 1.0, 100.0, 1.0, (v) {
-            setState(() => _topK = v.round());
-            _save();
-          }),
-          _slider('Repeat penalty', _repPen, 1.0, 2.0, 0.05, (v) {
-            setState(() => _repPen = v);
-            _save();
-          }),
           const SizedBox(height: 16),
-          FilledButton.icon(
+          GlassFilledButton(
             onPressed: _running ? null : _run,
-            icon: _running
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.play_arrow_rounded),
-            label: Text(_running ? 'Running…' : 'Run'),
+            loading: _running,
+            icon: const Icon(Icons.play_arrow_rounded),
+            iconAlignment: IconAlignment.start,
+            child: Text(_running ? 'Running…' : 'Run'),
           ),
           if (_output.isNotEmpty) ...[
             const SizedBox(height: 16),
-            Container(
+            GlassContainer(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(16),
-              ),
+              surfaceLevel: GlassSurfaceLevel.level2,
+              border: GlassBorder.subtle,
+              borderRadius: 16,
               child: SelectableText(_output,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.4)),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(height: 1.4, color: cs.textPrimary)),
             ),
           ],
         ],
@@ -177,9 +182,12 @@ class _PromptLabScreenState extends State<PromptLabScreen> {
       child: Row(
         children: [
           SizedBox(
-            width: 110,
+            width: 120,
             child: Text('$label  ${value.toStringAsFixed(value >= 100 ? 0 : 2)}',
-                style: Theme.of(context).textTheme.labelMedium),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(color: Theme.of(context).colorScheme.textPrimary)),
           ),
           Expanded(
             child: Slider(value: value, min: min, max: max, onChanged: onChanged),

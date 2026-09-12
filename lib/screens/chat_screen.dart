@@ -13,6 +13,7 @@ import '../services/skills.dart';
 import '../services/speech.dart';
 import '../services/stores.dart';
 import '../services/tools.dart';
+import '../widgets/glass.dart';
 import 'conversations_screen.dart';
 import 'debug_panel.dart';
 import 'settings_screen.dart';
@@ -224,24 +225,18 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
+      extendBodyBehindAppBar: true,
+      appBar: GlassAppBar(
         titleSpacing: 20,
         title: Row(
           children: [
-            Container(
-              width: 30,
-              height: 30,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: cs.primary,
-                borderRadius: BorderRadius.circular(9),
-              ),
+            GlassCircle(
+              size: 30,
+              surfaceLevel: GlassSurfaceLevel.level3,
+              border: GlassBorder.normal,
               child: Text('C',
                   style: TextStyle(
-                      color: cs.onPrimary, fontWeight: FontWeight.w700, fontSize: 16)),
+                      color: cs.accent, fontWeight: FontWeight.w700, fontSize: 16)),
             ),
             const SizedBox(width: 10),
             Column(
@@ -251,42 +246,46 @@ class _ChatScreenState extends State<ChatScreen> {
                     style: Theme.of(context)
                         .textTheme
                         .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w700)),
+                        ?.copyWith(fontWeight: FontWeight.w700, color: cs.textPrimary)),
                 Text('Fully on-device · works offline',
                     style: Theme.of(context)
                         .textTheme
                         .labelSmall
-                        ?.copyWith(color: cs.onSurfaceVariant)),
+                        ?.copyWith(color: cs.textTertiary)),
               ],
             ),
           ],
         ),
         actions: [
-          IconButton(
+          GlassIconButton(
             icon: const Icon(Icons.grid_view_outlined),
             tooltip: 'Skills',
             onPressed: _openSkills,
+            size: 40,
           ),
-          IconButton(
+          GlassIconButton(
             icon: const Icon(Icons.chat_bubble_outline),
             tooltip: 'Chat history',
             onPressed: _openConversations,
+            size: 40,
           ),
-          IconButton(
+          GlassIconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => SettingsScreen(
                   store: widget.settingsStore, runner: widget.runner),
             )),
+            size: 40,
           ),
-          IconButton(
+          GlassIconButton(
             icon: const Icon(Icons.tune),
             tooltip: 'Debug & demo controls',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) =>
                   DebugPanel(monitor: widget.monitor, router: widget.router),
             )),
+            size: 40,
           ),
         ],
       ),
@@ -321,14 +320,15 @@ class _SimulatedBanner extends StatelessWidget {
     return ValueListenableBuilder<bool>(
       valueListenable: monitor.simulating,
       builder: (_, simulated, _) => simulated
-          ? Container(
-              color: cs.tertiaryContainer,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+          ? GlassContainer(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              surfaceLevel: GlassSurfaceLevel.level3,
+              border: GlassBorder.normal,
+              borderRadius: CandorRadius.md,
               child: Row(
                 children: [
-                  Icon(Icons.science_outlined,
-                      size: 14, color: cs.onTertiaryContainer),
+                  Icon(Icons.science_outlined, size: 14, color: cs.accent),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -336,7 +336,7 @@ class _SimulatedBanner extends StatelessWidget {
                       style: Theme.of(context)
                           .textTheme
                           .labelSmall
-                          ?.copyWith(color: cs.onTertiaryContainer),
+                          ?.copyWith(color: cs.textSecondary),
                     ),
                   ),
                 ],
@@ -364,14 +364,14 @@ class _EmptyState extends StatelessWidget {
             Text('Candor',
                 style: t.headlineMedium?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: cs.primary,
+                    color: cs.accent,
                     letterSpacing: -0.5)),
             const SizedBox(height: 8),
             Text(
               'A private assistant that runs entirely on your phone.\n'
               'It answers with two on-device models — and tells you which one did.',
               textAlign: TextAlign.center,
-              style: t.bodyMedium?.copyWith(color: cs.onSurfaceVariant, height: 1.4),
+              style: t.bodyMedium?.copyWith(color: cs.textSecondary, height: 1.4),
             ),
             const SizedBox(height: 28),
             for (final s in _suggestions) ...[
@@ -393,18 +393,13 @@ class _Suggestion extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: cs.surfaceContainerHigh,
-      borderRadius: BorderRadius.circular(22),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Text(prompt,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurface)),
-        ),
-      ),
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      surfaceLevel: GlassSurfaceLevel.level2,
+      border: GlassBorder.subtle,
+      onTap: onTap,
+      child: Text(prompt,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.textPrimary)),
     );
   }
 }
@@ -461,15 +456,14 @@ class _ChatRow extends StatelessWidget {
           onLongPress: () => _showMessageActions(context, message.text),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
-            child: Container(
+            child: GlassCard(
               margin: const EdgeInsets.only(bottom: 18, left: 48),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: cs.primaryContainer,
-                borderRadius: BorderRadius.circular(20),
-              ),
+              surfaceLevel: GlassSurfaceLevel.level3,
+              border: GlassBorder.none,
+              borderRadius: 20,
               child: Text(message.text,
-                  style: TextStyle(color: cs.onPrimaryContainer, height: 1.35)),
+                  style: TextStyle(color: cs.textPrimary, height: 1.35)),
             ),
           ),
         ),
@@ -484,13 +478,11 @@ class _ChatRow extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (message.streaming)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: cs.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(18),
-                ),
+              GlassCard(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                surfaceLevel: GlassSurfaceLevel.level2,
+                border: GlassBorder.subtle,
+                borderRadius: 18,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [const _TypingDots(), const SizedBox(width: 10)],
@@ -504,25 +496,23 @@ class _ChatRow extends StatelessWidget {
             if (message.toolKind != null && !message.streaming)
               GestureDetector(
                 onLongPress: () => _showMessageActions(context, message.text),
-                child: Container(
+                child: GlassCard(
                   margin: const EdgeInsets.only(top: 8, bottom: 18),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: cs.tertiaryContainer,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  surfaceLevel: GlassSurfaceLevel.level2,
+                  border: GlassBorder.subtle,
+                  borderRadius: 18,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(toolIcon(message.toolKind!),
-                          size: 18, color: cs.onTertiaryContainer),
+                          size: 18, color: cs.accent),
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(message.text,
                             style: TextStyle(
                                 fontSize: 15,
-                                color: cs.onTertiaryContainer,
+                                color: cs.textPrimary,
                                 height: 1.35)),
                       ),
                     ],
@@ -549,20 +539,20 @@ class _Markdown extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final base = MarkdownStyleSheet.fromTheme(Theme.of(context));
     final style = base.copyWith(
-      p: TextStyle(fontSize: 15, height: 1.5, color: cs.onSurface),
+      p: TextStyle(fontSize: 15, height: 1.5, color: cs.textPrimary),
       code: TextStyle(
         fontSize: 13,
-        color: cs.onSurface,
-        backgroundColor: cs.surfaceContainerHighest,
+        color: cs.textPrimary,
+        backgroundColor: cs.glassSurface2,
         fontFamily: 'monospace',
       ),
       codeblockDecoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
+        color: cs.glassSurface2,
         borderRadius: BorderRadius.circular(10),
       ),
       codeblockPadding: const EdgeInsets.all(10),
       blockquoteDecoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
+        color: cs.glassSurface2,
         borderRadius: BorderRadius.circular(8),
       ),
       blockquotePadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -594,41 +584,35 @@ class _TierPill extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Material(
-            color: cs.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(12),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => _showTierInfo(context, message),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: _tierColor(tier, cs),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${tier.label}  ·  ${lat.toStringAsFixed(1)} s'
-                      '${_conf(message.confidence)}',
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(color: cs.onSurfaceVariant),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(Icons.info_outline,
-                        size: 13, color: cs.onSurfaceVariant),
-                  ],
+          GlassCard(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            surfaceLevel: GlassSurfaceLevel.level2,
+            border: GlassBorder.subtle,
+            borderRadius: 12,
+            onTap: () => _showTierInfo(context, message),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _tierColor(tier, cs),
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
+                const SizedBox(width: 6),
+                Text(
+                  '${tier.label}  ·  ${lat.toStringAsFixed(1)} s'
+                  '${_conf(message.confidence)}',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: cs.textSecondary),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.info_outline, size: 13, color: cs.textTertiary),
+              ],
             ),
           ),
           if (message.note != null)
@@ -638,7 +622,7 @@ class _TierPill extends StatelessWidget {
                   style: Theme.of(context)
                       .textTheme
                       .labelSmall
-                      ?.copyWith(color: cs.onSurfaceVariant)),
+                      ?.copyWith(color: cs.textTertiary)),
             ),
         ],
       ),
@@ -755,7 +739,7 @@ void _showTierInfo(BuildContext context, ChatMessage message) {
               style: Theme.of(context)
                   .textTheme
                   .labelMedium
-                  ?.copyWith(color: cs.onSurfaceVariant),
+                  ?.copyWith(color: cs.textSecondary),
             ),
           ],
         ),
@@ -765,9 +749,9 @@ void _showTierInfo(BuildContext context, ChatMessage message) {
 }
 
 Color _tierColor(FinalTier tier, ColorScheme cs) => switch (tier) {
-      FinalTier.tier1 => cs.secondary,
-      FinalTier.tier2 => cs.primary,
-      FinalTier.tier1Constrained => cs.error,
+      FinalTier.tier1 => cs.tier1,
+      FinalTier.tier2 => cs.tier2,
+      FinalTier.tier1Constrained => cs.tier1Constrained,
     };
 
 class _TypingDots extends StatefulWidget {
@@ -795,7 +779,7 @@ class _TypingDotsState extends State<_TypingDots>
 
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.primary;
+    final color = Theme.of(context).colorScheme.accent;
     return AnimatedBuilder(
       animation: _c,
       builder: (_, _) => Row(
@@ -885,21 +869,24 @@ class _ComposerState extends State<_Composer> {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
-        child: Container(
+        child: GlassContainer(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          decoration: BoxDecoration(
-            color: cs.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(28),
-          ),
+          surfaceLevel: GlassSurfaceLevel.level2,
+          border: GlassBorder.subtle,
+          borderRadius: 28,
+          blurStrength: GlassBlurStrength.normal,
           child: Row(
             children: [
-              IconButton(
-                tooltip: _listening ? 'Stop listening' : 'Speak',
-                onPressed: _micSupported ? _toggleSpeech : null,
+              GlassIconButton(
                 icon: Icon(
                   _listening ? Icons.stop_rounded : Icons.mic_none_rounded,
-                  color: _listening ? cs.error : null,
+                  color: _listening ? cs.error : cs.textSecondary,
                 ),
+                tooltip: _listening ? 'Stop listening' : 'Speak',
+                onPressed: _micSupported ? _toggleSpeech : null,
+                size: 40,
+                surfaceLevel: GlassSurfaceLevel.level1,
+                border: GlassBorder.none,
               ),
               Expanded(
                 child: TextField(
@@ -907,21 +894,19 @@ class _ComposerState extends State<_Composer> {
                   minLines: 1,
                   maxLines: 4,
                   textInputAction: TextInputAction.send,
-                  style: const TextStyle(fontSize: 15),
+                  style: const TextStyle(fontSize: 15, color: Colors.white),
                   decoration: const InputDecoration(
                     hintText: 'Message Candor',
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                    hintStyle: TextStyle(color: Color(0x80FFFFFF)),
                   ),
                   onSubmitted: (_) => widget.onSend(),
                 ),
               ),
               AnimatedBuilder(
                 animation: widget.controller,
-                builder: (_, _) => IconButton.filled(
-                  onPressed: widget.controller.text.trim().isEmpty || widget.sending
-                      ? null
-                      : widget.onSend,
+                builder: (_, _) => GlassIconButton(
                   icon: widget.sending
                       ? const SizedBox(
                           width: 18,
@@ -930,6 +915,15 @@ class _ComposerState extends State<_Composer> {
                         )
                       : const Icon(Icons.arrow_upward_rounded),
                   tooltip: 'Send',
+                  onPressed: widget.controller.text.trim().isEmpty || widget.sending
+                      ? null
+                      : widget.onSend,
+                  size: 40,
+                  surfaceLevel: widget.sending || widget.controller.text.trim().isEmpty
+                      ? GlassSurfaceLevel.level1
+                      : GlassSurfaceLevel.level3,
+                  border: GlassBorder.none,
+                  iconSize: 22,
                 ),
               ),
             ],

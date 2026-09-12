@@ -6,6 +6,7 @@ import 'services/device_state.dart';
 import 'services/model_runner.dart';
 import 'services/router.dart';
 import 'services/stores.dart';
+import 'theme/app_theme.dart';
 
 /// Everything the app needs wired once (first launch copies bundled GGUFs into
 /// app storage; tiers load on demand at first query — see ModelRunner).
@@ -64,11 +65,10 @@ class CandorApp extends StatelessWidget {
           animation: services.settingsStore,
           builder: (_, _) => MaterialApp(
             title: 'Candor',
-            theme: _theme(Brightness.light),
-            darkTheme: _theme(Brightness.dark),
+            theme: buildCandorTheme(brightness: Brightness.light),
+            darkTheme: buildCandorTheme(brightness: Brightness.dark),
             themeMode: _themeMode(services.settingsStore.themeMode),
-            // "Candor" = warm clay seed (blind-demo colour, feels honest + human);
-            // full M3 role set generated from it.
+            // OLED Black glassmorphism theme — true black, white text, frosted glass.
             home: _Root(services: services),
           ),
         );
@@ -123,36 +123,34 @@ class _RootState extends State<_Root> {
   }
 }
 
-ThemeData _theme(Brightness brightness) => ThemeData(
-      useMaterial3: true, // required on both themes, not just one
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFFA64B2A), // warm clay, not corporate teal
-        brightness: brightness,
-      ),
-    );
-
 class _StartupView extends StatelessWidget {
   final String? error;
   const _StartupView({this.error});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: error == null
-            ? const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Preparing on-device models…'),
-                ],
-              )
-            : Padding(
-                padding: const EdgeInsets.all(32),
-                child: Text('Startup failed: $error',
-                    textAlign: TextAlign.center),
-              ),
+    return MaterialApp(
+      theme: buildCandorTheme(brightness: Brightness.dark),
+      home: Scaffold(
+        backgroundColor: CandorColors.black,
+        body: Center(
+          child: error == null
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: CandorColors.accent),
+                    const SizedBox(height: 16),
+                    Text('Preparing on-device models…',
+                        style: TextStyle(color: CandorColors.textSecondary)),
+                  ],
+                )
+              : Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Text('Startup failed: $error',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: CandorColors.textSecondary)),
+                ),
+        ),
       ),
     );
   }

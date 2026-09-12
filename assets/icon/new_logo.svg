@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Tile: near-black vertical gradient -->
+    <linearGradient id="tile" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#16171B"/>
+      <stop offset="55%" stop-color="#08080A"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+
+    <!-- Glass card surface with top light -->
+    <linearGradient id="card" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.10"/>
+      <stop offset="18%" stop-color="#FFFFFF" stop-opacity="0.035"/>
+      <stop offset="82%" stop-color="#FFFFFF" stop-opacity="0.015"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <!-- Ambient mint glow behind the glyph -->
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00E5A0" stop-opacity="0.14"/>
+      <stop offset="55%" stop-color="#00B8FF" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#00B8FF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- The C: bright glass ink falling off to cool grey -->
+    <linearGradient id="cGlass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="62%" stop-color="#DDE0E9" stop-opacity="0.96"/>
+      <stop offset="100%" stop-color="#9AA0B4" stop-opacity="0.85"/>
+    </linearGradient>
+
+    <!-- Prism light sweep -->
+    <linearGradient id="prism" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38B6FF"/>
+      <stop offset="100%" stop-color="#7CFFD0"/>
+    </linearGradient>
+
+    <!-- Spark glow -->
+    <radialGradient id="sparkGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7CFFD0" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#38B6FF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- ── Tile ── -->
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#tile)"/>
+
+  <!-- Ambient glow -->
+  <ellipse cx="512" cy="500" rx="470" ry="470" fill="url(#glow)"/>
+
+  <!-- Inset rounded card with hairline edge -->
+  <rect x="56" y="56" width="912" height="912" rx="224" fill="url(#card)"/>
+  <rect x="56" y="56" width="912" height="912" rx="224" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="2"/>
+  <!-- top glass highlight line on the card -->
+  <rect x="56" y="56" width="912" height="300" rx="224" fill="url(#card)" opacity="0.5"/>
+
+  <!-- ── Prism light sweep (mint → cyan, over the top) ── -->
+  <!-- soft under-glow -->
+  <path d="M 860 311 A 402 402 0 0 0 374.5 134.2"
+        fill="none" stroke="url(#prism)" stroke-width="34" stroke-linecap="round" opacity="0.16"/>
+  <path d="M 860 311 A 402 402 0 0 0 374.5 134.2"
+        fill="none" stroke="url(#prism)" stroke-width="13" stroke-linecap="round" opacity="0.92"/>
+
+  <!-- Spark at the light tip -->
+  <circle cx="374.5" cy="134.2" r="44" fill="url(#sparkGlow)"/>
+  <circle cx="374.5" cy="134.2" r="10" fill="#EAFFF6"/>
+
+  <!-- ── The glass C (opens right) ── -->
+  <!-- soft drop shadow for depth -->
+  <path d="M 662 252.2 A 300 300 0 1 0 662 771.8"
+        fill="none" stroke="#000000" stroke-width="92" stroke-linecap="round" opacity="0.55"
+        transform="translate(0 14)"/>
+  <path d="M 662 252.2 A 300 300 0 1 0 662 771.8"
+        fill="none" stroke="url(#cGlass)" stroke-width="92" stroke-linecap="round"/>
+
+  <!-- glossy glare on the C's crown -->
+  <path d="M 512 212 A 300 300 0 0 0 252.2 362"
+        fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round" opacity="0.22"/>
+
+  <!-- faint inner-edge cut for a glassy rim -->
+  <path d="M 697 301 A 268 268 0 0 0 512 244"
+        fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" opacity="0.18"/>
+</svg>

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../services/stores.dart';
+import '../widgets/glass.dart';
 
 class ConversationsScreen extends StatefulWidget {
   final ChatStore store;
@@ -26,37 +27,42 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
     return Scaffold(
-      appBar: AppBar(
+      extendBodyBehindAppBar: true,
+      appBar: GlassAppBar(
         title: const Text('Chats'),
-        backgroundColor: Colors.transparent,
-        scrolledUnderElevation: 0,
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: GlassFAB(
         onPressed: () => Navigator.of(context).pop(Conversation.newThread()),
+        label: 'New chat',
         icon: const Icon(Icons.add_comment_outlined),
-        label: const Text('New chat'),
+        extended: true,
       ),
       body: sorted.isEmpty
           ? Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.chat_bubble_outline,
-                      size: 40, color: cs.onSurfaceVariant),
-                  const SizedBox(height: 12),
+                  GlassCircle(
+                    size: 80,
+                    surfaceLevel: GlassSurfaceLevel.level2,
+                    child: Icon(Icons.chat_bubble_outline,
+                        size: 40, color: cs.textTertiary),
+                  ),
+                  const SizedBox(height: 16),
                   Text('No chats yet',
-                      style: Theme.of(context).textTheme.titleMedium),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: cs.textPrimary)),
                   const SizedBox(height: 4),
                   Text('Questions you ask land here.',
                       style: Theme.of(context)
                           .textTheme
                           .bodySmall
-                          ?.copyWith(color: cs.onSurfaceVariant)),
+                          ?.copyWith(color: cs.textTertiary)),
                 ],
               ),
             )
           : ListView.builder(
-              padding: const EdgeInsets.only(bottom: 88),
+              padding: const EdgeInsets.fromLTRB(16, 80, 16, 88),
               itemCount: sorted.length,
               itemBuilder: (context, i) {
                 final c = sorted[i];
@@ -67,36 +73,73 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
                   key: ValueKey(c.id),
                   direction: DismissDirection.endToStart,
                   background: Container(
-                    color: cs.errorContainer,
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    decoration: BoxDecoration(
+                      color: cs.errorContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     alignment: Alignment.centerRight,
                     padding: const EdgeInsets.only(right: 24),
-                    child: Icon(Icons.delete_outline, color: cs.onErrorContainer),
+                    child: Icon(Icons.delete_outline, color: cs.onError),
                   ),
                   onDismissed: (_) {
                     setState(() => widget.store.conversations
                         .removeWhere((x) => x.id == c.id));
                     unawaited(widget.store.save().catchError((_) {}));
                   },
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: cs.primaryContainer,
-                      child: Text(
-                        title.isEmpty ? '?' : title[0].toUpperCase(),
-                        style: TextStyle(color: cs.onPrimaryContainer),
-                      ),
-                    ),
-                    title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(
-                      snippet.replaceAll('\n', ' '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: Text(_clock(c.updatedAt),
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelSmall
-                            ?.copyWith(color: cs.onSurfaceVariant)),
+                  child: GlassCard(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    surfaceLevel: GlassSurfaceLevel.level2,
+                    border: GlassBorder.subtle,
                     onTap: () => Navigator.of(context).pop(c),
+                    child: Row(
+                      children: [
+                        GlassCircle(
+                          size: 40,
+                          surfaceLevel: GlassSurfaceLevel.level3,
+                          child: Text(
+                            title.isEmpty ? '?' : title[0].toUpperCase(),
+                            style: TextStyle(
+                                color: cs.accent,
+                                fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(
+                                          color: cs.textPrimary,
+                                          fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 2),
+                              Text(
+                                snippet.replaceAll('\n', ' '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(color: cs.textTertiary),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(_clock(c.updatedAt),
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(color: cs.textDisabled)),
+                      ],
+                    ),
                   ),
                 );
               },

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/glass.dart';
+
 /// Three-panel first-run intro, shown once until the user taps through
 /// (persisted via `SettingsStore.onboardingDone`).
 class OnboardingScreen extends StatefulWidget {
@@ -51,9 +53,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final cs = Theme.of(context).colorScheme;
     final last = _index == _pages.length - 1;
     return Scaffold(
+      backgroundColor: CandorColors.black,
       body: SafeArea(
         child: Column(
           children: [
@@ -61,7 +64,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               alignment: Alignment.centerRight,
               child: Padding(
                 padding: const EdgeInsets.only(top: 8, right: 8),
-                child: TextButton(
+                child: GlassTextButton(
                   onPressed: widget.onDone,
                   child: const Text('Skip'),
                 ),
@@ -79,14 +82,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Container(
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            color: scheme.primaryContainer,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(p.icon, size: 56, color: scheme.onPrimaryContainer),
+                        GlassCircle(
+                          size: 120,
+                          surfaceLevel: GlassSurfaceLevel.level2,
+                          border: GlassBorder.normal,
+                          child: Icon(p.icon, size: 56, color: cs.accent),
                         ),
                         const SizedBox(height: 40),
                         Text(p.title,
@@ -94,12 +94,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             style: Theme.of(context)
                                 .textTheme
                                 .headlineMedium
-                                ?.copyWith(fontWeight: FontWeight.w600)),
+                                ?.copyWith(fontWeight: FontWeight.w600, color: cs.textPrimary)),
                         const SizedBox(height: 16),
                         Text(p.body,
                             textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                height: 1.5, color: scheme.onSurfaceVariant)),
+                                height: 1.5, color: cs.textSecondary)),
                       ],
                     ),
                   );
@@ -117,12 +117,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       width: i == _index ? 22 : 8,
                       height: 8,
                       decoration: BoxDecoration(
-                        color: i == _index ? scheme.primary : scheme.outlineVariant,
+                        color: i == _index ? cs.accent : cs.glassBorder1,
                         borderRadius: BorderRadius.circular(4),
                       ),
                     ),
                   const Spacer(),
-                  FilledButton(
+                  GlassFilledButton(
                     onPressed: _next,
                     child: Text(last ? 'Start chatting' : 'Next'),
                   ),

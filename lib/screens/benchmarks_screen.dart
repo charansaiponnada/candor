@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/device_state.dart';
 import '../services/model_runner.dart';
+import '../widgets/glass.dart';
 
 /// On-device model benchmark — the Gallery's "Model Management & Benchmark"
 /// feature, but measured on this phone, offline. Load time, streaming
@@ -47,10 +48,9 @@ class _BenchmarksScreenState extends State<BenchmarksScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
+      extendBodyBehindAppBar: true,
+      appBar: GlassAppBar(
         title: const Text('Models & Benchmarks'),
-        backgroundColor: Colors.transparent,
-        scrolledUnderElevation: 0,
       ),
       body: FutureBuilder<Map<String, int>>(
         future: _sizes,
@@ -64,79 +64,85 @@ class _BenchmarksScreenState extends State<BenchmarksScreen> {
                 return const Center(child: Text('No bundled models found.'));
               }
               return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                padding: const EdgeInsets.fromLTRB(16, 80, 16, 24),
                 itemCount: models.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
                 itemBuilder: (context, i) {
                   final name = models[i];
                   final r = _results[name];
                   final size = sizes[name];
-                  return Material(
-                    color: cs.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(18),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: cs.primaryContainer,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Icon(Icons.memory_rounded,
-                                    color: cs.onPrimaryContainer),
+                  return GlassCard(
+                    padding: const EdgeInsets.all(16),
+                    surfaceLevel: GlassSurfaceLevel.level2,
+                    border: GlassBorder.subtle,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            GlassContainer(
+                              width: 40,
+                              height: 40,
+                              padding: EdgeInsets.zero,
+                              surfaceLevel: GlassSurfaceLevel.level3,
+                              border: GlassBorder.none,
+                              borderRadius: 12,
+                              child: Icon(Icons.memory_rounded,
+                                  color: cs.accent),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(name,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                              color: cs.textPrimary)),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                      size != null
+                                          ? _fmtBytes(size)
+                                          : 'Size unavailable (not prepared yet)',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(color: cs.textTertiary)),
+                                ],
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(name,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleSmall
-                                            ?.copyWith(fontWeight: FontWeight.w700)),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                        size != null
-                                            ? _fmtBytes(size)
-                                            : 'Size unavailable (not prepared yet)',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .labelSmall
-                                            ?.copyWith(color: cs.onSurfaceVariant)),
-                                  ],
-                                ),
-                              ),
-                              FilledButton.tonalIcon(
-                                onPressed: _running ? null : () => _run(name),
-                                icon: r != null
-                                    ? const Icon(Icons.replay_rounded, size: 18)
-                                    : const Icon(Icons.play_arrow_rounded, size: 18),
-                                label: Text(r != null ? 'Re-run' : 'Run'),
-                              ),
-                            ],
-                          ),
-                          if (r != null) ...[
-                            const SizedBox(height: 14),
-                            Wrap(
-                              spacing: 16,
-                              runSpacing: 8,
-                              children: [
-                                _stat(cs, 'Load', '${r.loadMs} ms'),
-                                _stat(cs, 'Speed', '${r.tokensPerSec.toStringAsFixed(1)} tok/s'),
-                                _stat(cs, 'Device', r.device),
-                                _stat(cs, 'Threads', '${r.threads}'),
-                              ],
+                            ),
+                            GlassTonalButton(
+                              onPressed: _running ? null : () => _run(name),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              minSize: const Size(72, 36),
+                              icon: r != null
+                                  ? const Icon(Icons.replay_rounded, size: 16)
+                                  : const Icon(Icons.play_arrow_rounded,
+                                      size: 16),
+                              iconAlignment: IconAlignment.start,
+                              gap: 4,
+                              child: Text(r != null ? 'Re-run' : 'Run'),
                             ),
                           ],
+                        ),
+                        if (r != null) ...[
+                          const SizedBox(height: 14),
+                          Wrap(
+                            spacing: 16,
+                            runSpacing: 8,
+                            children: [
+                              _stat(cs, 'Load', '${r.loadMs} ms'),
+                              _stat(cs, 'Speed', '${r.tokensPerSec.toStringAsFixed(1)} tok/s'),
+                              _stat(cs, 'Device', r.device),
+                              _stat(cs, 'Threads', '${r.threads}'),
+                            ],
+                          ),
                         ],
-                      ),
+                      ],
                     ),
                   );
                 },
@@ -153,12 +159,12 @@ class _BenchmarksScreenState extends State<BenchmarksScreen> {
         children: [
           Text(label.toUpperCase(),
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
+                  color: cs.textTertiary, fontWeight: FontWeight.w600)),
           Text(value,
               style: Theme.of(context)
                   .textTheme
                   .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700, color: cs.primary)),
+                  ?.copyWith(fontWeight: FontWeight.w700, color: cs.accent)),
         ],
       );
 }

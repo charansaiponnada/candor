@@ -74,8 +74,11 @@ void main() {
     final store = SettingsStore(File('${tmp.path}/settings.json'));
     await pump(tester, store);
     await tester.pumpAndSettle();
+    await tester.dragUntilVisible(find.text('Use GPU (Vulkan)'),
+        find.byType(ListView), const Offset(0, -300));
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Use GPU (Vulkan)'));
+    await tester.tap(find.byType(Switch));
     await tester.pump();
 
     expect(store.useGpu, true);
