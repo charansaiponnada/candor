@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' hide Router;
 import '../models.dart';
 import '../services/device_state.dart';
 import '../services/router.dart';
+import '../widgets/glass.dart';
 
 /// Debug/demo panel (PRD §6.6): live real device readout, latency pitch data,
 /// and the simulated-constrained-mode toggle. Presented live to judges, so it
@@ -31,31 +32,57 @@ class _DebugPanelState extends State<DebugPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
+      extendBodyBehindAppBar: true,
+      appBar: GlassAppBar(
         title: const Text('Debug & Demo'),
         actions: [
-          IconButton(
+          GlassIconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Re-read device values',
             onPressed: _refresh,
+            size: 40,
           ),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 80, 16, 32),
         children: [
-          Text('Device state', style: Theme.of(context).textTheme.titleMedium),
+          Text('Device state',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(color: cs.textPrimary, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           _LiveReadout(state: _realState),
           const SizedBox(height: 24),
           _SimulateCard(monitor: widget.monitor),
           const SizedBox(height: 24),
-          Text('Latency (pitch data)', style: Theme.of(context).textTheme.titleMedium),
+          Text('Latency (pitch data)',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(color: cs.textPrimary, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           _LatencyCard(router: widget.router),
         ],
       ),
+    );
+  }
+}
+
+class _GlassCard extends StatelessWidget {
+  final Widget child;
+  const _GlassCard({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      margin: const EdgeInsets.only(bottom: 12),
+      surfaceLevel: GlassSurfaceLevel.level2,
+      border: GlassBorder.subtle,
+      child: child,
     );
   }
 }
@@ -67,35 +94,46 @@ class _LiveReadout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Card.filled(
+    return _GlassCard(
       child: FutureBuilder<DeviceState>(
         future: state,
         builder: (_, snap) {
           if (!snap.hasData) {
-            return const ListTile(
-              leading: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+            return const Padding(
+              padding: EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 12),
+                  Text('Reading device…'),
+                ],
               ),
-              title: Text('Reading device…'),
             );
           }
           final d = snap.data!;
           return Column(
             children: [
               ListTile(
-                leading: Icon(Icons.battery_full, color: d.batteryPercent < 20 ? cs.error : cs.primary),
+                leading: Icon(Icons.battery_full,
+                    color: d.batteryPercent < 20 ? cs.error : cs.accent),
                 title: const Text('Battery'),
                 trailing: Text('${d.batteryPercent}%'),
                 subtitle: LinearProgressIndicator(
                   value: d.batteryPercent / 100,
-                  color: d.batteryPercent < 20 ? cs.error : cs.primary,
-                  backgroundColor: cs.surfaceContainerHighest,
+                  color: d.batteryPercent < 20 ? cs.error : cs.accent,
+                  backgroundColor: cs.glassSurface2,
                 ),
               ),
               ListTile(
-                leading: Icon(Icons.thermostat, color: d.thermal.index >= ThermalLevel.moderate.index ? cs.error : cs.primary),
+                leading: Icon(
+                    Icons.thermostat,
+                    color: d.thermal.index >= ThermalLevel.moderate.index
+                        ? cs.error
+                        : cs.accent),
                 title: const Text('Thermal status'),
                 trailing: Text(switch (d.thermal) {
                   ThermalLevel.none => 'NONE',
@@ -118,11 +156,12 @@ class _SimulateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card.filled(
+    final cs = Theme.of(context).colorScheme;
+    return _GlassCard(
       child: Column(
         children: [
           SwitchListTile(
-            secondary: const Icon(Icons.science_outlined),
+            secondary: Icon(Icons.science_outlined, color: cs.accent),
             title: const Text('Simulate constrained mode'),
             subtitle: const Text('Router sees 5% battery, SEVERE thermal — '
                 'blocks the larger model. Reset turns it off.'),
@@ -140,7 +179,7 @@ class _SimulateCard extends StatelessWidget {
                       ? 'SIMULATED — real device values still shown above; the router ignores them while this is on.'
                       : 'Off. The router reads the real battery/thermal values above.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: on ? Theme.of(context).colorScheme.error : null,
+                        color: on ? Theme.of(context).colorScheme.error : cs.textSecondary,
                       ),
                 ),
               ),
@@ -158,7 +197,7 @@ class _LatencyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card.filled(
+    return _GlassCard(
       child: Column(
         children: [
           _latencyTile(context, 'Tier-1 only', router.lastTier1Ms, router.tier1Count, '${router.constrainedCount.value} constrained'),
@@ -170,6 +209,7 @@ class _LatencyCard extends StatelessWidget {
 
   Widget _latencyTile(BuildContext context, String title, ValueListenable<double?> ms,
       ValueListenable<int> count, String? extraInfo) {
+    final cs = Theme.of(context).colorScheme;
     return ValueListenableBuilder<double?>(
       valueListenable: ms,
       builder: (_, v, _) => ListTile(
@@ -179,7 +219,7 @@ class _LatencyCard extends StatelessWidget {
           valueListenable: count,
           builder: (_, runs, _) => Text(
             '$runs runs${extraInfo != null ? ' • $extraInfo' : ''}',
-            style: Theme.of(context).textTheme.labelSmall,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.textSecondary),
           ),
         ),
       ),

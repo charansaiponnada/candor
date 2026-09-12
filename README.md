@@ -8,6 +8,29 @@ why — "an assistant that tells you when it's holding back."
 
 Zero network calls at inference time. Battery/thermal state gate the escalation.
 
+## Hackathon (2026)
+
+**Privacy-first on-device SLM assistant for limited/unreliable connectivity.**
+
+- **Runs entirely on-device.** Two quantized open models (Qwen2.5 Q4_K_M) ride in
+  the APK and stream answers on a mid-range phone in a few seconds — no server,
+  no subscription, no network. Release manifest declares **no `INTERNET`
+  permission**: the app is architecturally incapable of a network call.
+- **Works (and is proven to work) offline.** Load the app with the phone in
+  airplane mode — calculator, converter, unit math, memo, world clock, dice and
+  coin flips, timers, SMS drafts, settings jumps and model answers *all* still
+  work, because none of them touch the network.
+- **Deterministic tools + skills can't hallucinate.** Utility asks (math, units,
+  dates, memos, text transforms, chance) are answered by a regex skill engine —
+  no model pass, no invented numbers. Platform actions (open app, set timer,
+  text/email draft, open site, jump to settings) run real intents.
+- **Honest about itself.** Every answer carries a `● Tier-1 · conf 0.95` badge;
+  a tappable pill explains what it means. Two tiers, honest hand-off, honest
+  degradation under thermal constraints.
+- **Proven, not promised.** The on-device **Models & Benchmarks** screen times
+  load + tokens/sec for every bundled GGUF on this phone. Try the **Prompt Lab**
+  to tune sampling live.
+
 ## Architecture
 
 ```
@@ -20,18 +43,30 @@ lib/
                            bundled-model listing) + real-vs-simulated readout + demo override
     model_runner.dart      llama_flutter_android wrapper, single controller, resident
                            (tier, model, gpu) caching, single-pass confidence parsing,
-                           settings-driven model choice + optional Vulkan offload
+                           settings-driven model choice + sampling, optional Vulkan
+                           offload, on-device benchmark (load ms + tok/s + size)
     router.dart            decision table + EscalationLog (JSON-lines file)
     tools.dart             tool context: regex intent detector + intent executor
-                           (open app, set timer, SMS/email draft, open website)
+                           (open app, set timer, SMS/email draft, open website,
+                           jump to system settings)
+    skills.dart            on-device skills engine: calculator (shunting-yard),
+                           unit converter, date/countdown + world clock, memo-to-disk,
+                           text helpers, dice & coin (seeded RNG), device controls
     stores.dart            JSON-file persistence: ChatStore (conversations.json,
                            corrupt file preserved as .bak) + SettingsStore (settings.json)
   screens/
-    chat_screen.dart       conversation-backed Claude-style chat: borderless answers,
-                           quiet `● Tier-1 · 12.4s · conf 0.95` attribution, typing dots,
-                           multi-turn history fed back as ChatML context
+    chat_screen.dart       conversation-backed Claude-style chat: markdown answers,
+                           long-press copy/share, per-row reveal animation, honest
+                           `● Tier-1 · 12.4s · conf 0.95` attribution, tappable tier pill,
+                           mic button for offline voice captioning (SpeechRecognizer)
+    onboarding_screen.dart 3-panel first-run intro (private on-device / one honest voice)
+    skills_screen.dart     skills hub: tile grid + entries to Models & Benchmarks and
+                           the Prompt Lab
+    benchmarks_screen.dart on-device proof: per-model size, load ms, tokens/sec, device
+    prompt_lab_screen.dart per-tier sampling sliders (temp/top-k/top-p/penalty) + sandbox
     conversations_screen.dart chat history list: newest-first, swipe-to-delete, "New chat"
-    settings_screen.dart   name/persona, per-tier model dropdowns, GPU (Vulkan) switch
+    settings_screen.dart   name/persona, per-tier model dropdowns, GPU (Vulkan) switch,
+                           theme (system/light/dark)
                            with a live capability line
     debug_panel.dart       live device readout, latency pitch data, simulate toggle
 android/…/MainActivity.kt  one MethodChannel "candor/device":
@@ -39,9 +74,10 @@ android/…/MainActivity.kt  one MethodChannel "candor/device":
                            getThermalStatus (PowerManager, API 29+)
                            prepareModel (stream-copy bundled GGUF out of assets)
                            listModels (assets/models for the picker)
+                           modelSizes (bytes on disk per prepared model)
 test/                      decision-table + log + prompt-assembly tests with stubbed
-                           runner/monitor + store/conversation/settings tests
-                           (57 tests total, all pass)
+                           runner/monitor + store/conversation/settings/skills tests
+                           (109 tests total, all pass)
 ```
 
 ### Router decision table (PRD §6.4)
@@ -82,6 +118,7 @@ offline, no extra inference:
 - "text mom that I'll be late" → SMS draft (recipient + body)
 - "email the team about the demo" → mail draft
 - "open github.com" → browser (`ACTION_VIEW`)
+- "open wifi settings" → jump to that system settings panel (`android.settings.*`)
 
 Regex intent detection in `services/tools.dart`; execution via
 `android_intent_plus` platform intents. A tool run renders a distinct action
@@ -93,6 +130,45 @@ caller holds `com.android.alarm.permission.SET_ALARM` (a `normal` permission),
 so the manifest declares both that legacy name and `android.permission.SET_ALARM`.
 If no app can handle an intent, the card shows "Couldn't do that" instead of a
 crypto error.
+
+## Skills (Gallery-style, fully on-device)
+
+A deterministic skill engine (`services/skills.dart`) answers utility asks
+**without any model pass** — the same "skimmable, instantly useful" pattern as
+Google AI Edge Gallery:
+```
+- "2 + 3 * 4"                       → 2 + 3 * 4 = 14        (shunting-yard evaluator)
+- "convert 5 miles to km"           → 5 miles = 8.04672 km  (length/weight/volume/speed/time/°C·°F·K)
+- "what is the current time"        → It's 14:32 — Tuesday.
+- "what time is it in tokyo"        → ≈ 02:34 in Tokyo (UTC+9)   (fixed-offset world clock)
+- "how many days until christmas"   → 173 days until christmas.  (next annual occurrence)
+- "remember that milk expires Friday" → saved to memos.json; "show my notes" reads it back
+- "roll 2 dice"                     → You rolled 4 and 6 (total 10).   ("flip a coin" too)
+- "shout candor is great"           → CANDOR IS GREAT       (+ reverse text, word count)
+```
+Detection is regex→executor, ordered after platform tools (a "set a timer"
+ask never becomes a skill). Fewest-guess, always-honest: a parse failure
+answers "I couldn't parse that expression." instead of inventing a number.
+The **skills hub** (grid icon in the chat bar) shows every skill with example
+prompts — tap one and it's sent as a real query. The same icons power the
+tool/skill cards in chat (`toolIcon` in skills.dart).
+
+Utility answers render as regular answer text; platform tool actions render as
+distinct action cards (see above).
+
+## First-run & polish
+
+- **Onboarding** (3 panels — "Private by design / Two minds, one honest
+  voice / Candid about itself") shows once, then the chat opens directly;
+  the flag persists in settings.json.
+- **Assistant replies are rendered Markdown** (`flutter_markdown_plus`,
+  offline). Long-press any message to **copy** it or **share** it via the
+  Android share sheet (ACTION_SEND, no network needed). Rows fade in once.
+- **Voice input.** The composer's mic button runs Android's offline
+  `SpeechRecognizer` (partial results streamed live into the box; stops
+  automatically on the final result).
+- **Tappable honesty pill** — the `● Tier-1 · 12.4s · conf 0.95` attribution
+  opens a bottom sheet explaining what the tier and confidence actually mean.
 
 ## Chat history & personalization
 
@@ -114,6 +190,14 @@ crypto error.
 
 ## Known limitations / decisions (PRD §9 asks to state these)
 
+- **Multimodal is not in this build.** AI Edge Gallery's killer demo is
+  Gemma 3 (vision): attach a photo, ask about it, all on-device. `llama_flutter_android`
+  (0.2.6) exposes a **text-only** API for Qwen — its Dart interface and Kotlin
+  bridge stream tokens, with no image-input path. True on-device image Q&A
+  (Gemma3 GGUF + image preprocessor) requires forking the plugin, adding a
+  vision input channel in both Dart and Kotlin, and bundling a ~2 GB VLM GGUF.
+  Everything else the competition demos (chat, tools, skills, markdown, candy
+  UI) is implemented here without that fork.
 - **Confidence proxy is self-assessed, not logprob-based.** The `llama_flutter_android`
   plugin streams `String` tokens and exposes no token logprobs, so the PRD's
   avg/min-logprob confidence is impossible without forking the plugin. Instead,
@@ -155,13 +239,25 @@ powershell -ExecutionPolicy Bypass -File tools/download_models.ps1
 
 # 2) build / install on a connected device (minSdk 29+)
 flutter pub get
-flutter build apk --debug
+flutter build apk
 flutter install
 ```
 
 First launch copies the bundled models into app storage (streaming, ~seconds);
 the splash shows "Preparing on-device models…". Tiers load on demand at first
-query.
+query. The release APK bundles the models, so it's ~1.5 GB by design. The
+launcher icon (clay `#A64B2A` with a candle and honest flame, adaptive) is
+generated by `flutter_launcher_icons` from `assets/icon/`.
+
+## Models & Benchmarks & Prompt Lab (in the Skills hub)
+
+- **Models & Benchmarks** lists every bundled GGUF with its on-disk size and,
+  on tap, times the model **load** (ms) and **streaming speed** (tokens/sec),
+  showing the compute device (CPU / Vulkan GPU name) and thread count — the
+  Gallery's benchmark panel, measured on *this* phone.
+- **Prompt Lab** exposes per-tier **sampling** (temperature, top-k, top-p,
+  repeat penalty) with live sliders and a one-shot sandbox that streams tokens
+  with timing; changes persist to settings.json and feed the real chat runner.
 
 ## Pitch data (measured on SM-E366B, Q4_K_M, CPU-only)
 

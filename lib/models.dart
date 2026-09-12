@@ -4,8 +4,13 @@ library;
 
 import 'dart:math' show Random;
 
-/// On-device actions a tool query maps to (PRD §6.7 tool context).
-enum ToolKind { launchApp, setTimer, sms, email, website }
+/// On-device actions/skills a query maps to (PRD §6.7 tool context). The
+/// intent kinds run via platform intents (tools.dart); the skill kinds run as
+/// pure Dart (skills.dart).
+enum ToolKind {
+  launchApp, setTimer, sms, email, website, deviceControl,
+  calculate, converter, dateTime, note, textTool, random
+}
 
 enum Tier { tier1, tier2 }
 
@@ -137,7 +142,12 @@ class Conversation {
 class ModelResult {
   final String text;
   final double confidence; // only meaningful for Tier-1
-  const ModelResult({required this.text, required this.confidence});
+  final double latencyMs;
+  const ModelResult({
+    required this.text,
+    required this.confidence,
+    this.latencyMs = 0,
+  });
 }
 
 class RouterResult {

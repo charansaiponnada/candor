@@ -1,8 +1,19 @@
+import 'dart:io';
+
 import 'package:llama_flutter_android/llama_flutter_android.dart' as llama;
 
 import '../models.dart';
 import 'device_state.dart';
 import 'stores.dart';
+
+typedef BenchResult = ({
+  String model,
+  int loadMs,
+  double tokensPerSec,
+  int sizeBytes,
+  String device,
+  int threads,
+});
 
 /// Wraps the llama.cpp Flutter plugin.
 ///
@@ -68,6 +79,56 @@ class ModelRunner {
   /// Bundled GGUFs available for the model picker.
   Future<List<String>> listModels() => DeviceStateMonitor.instance.listModels();
 
+  /// Whether a bundled model file (kept in app storage) is a Gemma-style GGUF.
+  static String _templateFor(String modelName) =>
+      modelName.toLowerCase().contains('gemma') ? 'gemma3' : 'chatml';
+
+  /// On-device benchmark: load time, streaming tokens/sec, file size, device.
+  /// Reuses the resident model when the requested model/gpu matches, so a
+  /// second benchmark of the same model is instant and doesn't churn RAM.
+  Future<BenchResult> benchmark(String modelName, {required bool gpu}) async {
+    final sw = Stopwatch()..start();
+    final path = await DeviceStateMonitor.instance.prepareModel(modelName);
+    final gpuInfo = await _detectGpu();
+    final layers = gpu && gpuInfo.vulkanSupported ? gpuInfo.recommendedGpuLayers : 0;
+    if (_residentTier != null) await _llama.dispose();
+    await _llama.loadModel(
+        modelPath: path, threads: _threads, contextSize: _contextSize, gpuLayers: layers);
+    final loadMs = sw.elapsedMilliseconds;
+    _residentTier = Tier.tier1;
+    _residentModel = modelName;
+    _residentGpu = gpu;
+
+    final gen = Stopwatch()..start();
+    var tokens = 0;
+    try {
+      await for (final _ in _llama.generateChat(
+        messages: [
+          llama.ChatMessage(
+              role: 'system', content: 'You are brief and direct.'),
+          llama.ChatMessage(
+              role: 'user', content: 'Name three colours of the ocean in one short line.'),
+        ],
+        template: _templateFor(modelName),
+        maxTokens: 48,
+        temperature: 0.7,
+      )) {
+        tokens++;
+      }
+    } catch (_) {}
+    final elapsedS = gen.elapsedMilliseconds / 1000.0;
+
+    final sizeBytes = await File(path).length();
+    return (
+      model: modelName,
+      loadMs: loadMs,
+      tokensPerSec: (elapsedS > 0 ? tokens / elapsedS : 0.0),
+      sizeBytes: sizeBytes,
+      device: gpu && gpuInfo.vulkanSupported ? gpuInfo.gpuName : 'CPU',
+      threads: _threads,
+    );
+  }
+
   /// What the settings screen shows under the GPU switch.
   Future<(bool supported, String name)> gpuCapability() async {
     final g = await _detectGpu();
@@ -88,9 +149,11 @@ class ModelRunner {
   Future<ModelResult> generate(Tier tier, String query,
       {List<ChatMessage>? history,
       void Function(String token)? onToken}) async {
+    final sw = Stopwatch()..start();
     final modelName =
         tier == Tier.tier1 ? _settings.tier1Model : _settings.tier2Model;
     final gpuLayers = _settings.useGpu ? await _resolveGpuLayers() : 0;
+    final s = _settings.sampling(tier);
     final messages = <llama.ChatMessage>[
       llama.ChatMessage(
           role: 'system',
@@ -122,9 +185,12 @@ class ModelRunner {
       final maxTokens = tier == Tier.tier1 ? 200 : 256;
       await for (final token in _llama.generateChat(
         messages: messages,
-        template: 'chatml',
+        template: _templateFor(modelName),
         maxTokens: maxTokens,
-        temperature: 0.7,
+        temperature: s.temperature,
+        topP: s.topP,
+        topK: s.topK,
+        repeatPenalty: s.repeatPenalty,
       )) {
         buf.write(token);
         onToken?.call(token);
@@ -141,6 +207,7 @@ class ModelRunner {
     return ModelResult(
       text: cleaned.$1,
       confidence: tier == Tier.tier1 ? cleaned.$2 : 0.0,
+      latencyMs: (sw.elapsedMilliseconds).toDouble(),
     );
   }
 
