@@ -231,28 +231,29 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Row(
           children: [
             GlassCircle(
-              size: 30,
+              size: 28,
               surfaceLevel: GlassSurfaceLevel.level3,
               border: GlassBorder.normal,
               child: Text('C',
-                  style: TextStyle(
-                      color: cs.accent, fontWeight: FontWeight.w700, fontSize: 16)),
+                  style:
+                      TextStyle(color: cs.accent, fontWeight: FontWeight.w700, fontSize: 15)),
             ),
             const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Candor',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.w700, color: cs.textPrimary)),
-                Text('Fully on-device · works offline',
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelSmall
-                        ?.copyWith(color: cs.textTertiary)),
-              ],
+            Text('Candor',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700, color: cs.textPrimary)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: cs.accentContainer,
+                borderRadius: BorderRadius.circular(CandorRadius.pill),
+              ),
+              child: Text('OFFLINE',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: cs.accent, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
             ),
           ],
         ),
@@ -261,22 +262,19 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: const Icon(Icons.grid_view_outlined),
             tooltip: 'Skills',
             onPressed: _openSkills,
-            size: 40,
           ),
           GlassIconButton(
             icon: const Icon(Icons.chat_bubble_outline),
             tooltip: 'Chat history',
             onPressed: _openConversations,
-            size: 40,
           ),
           GlassIconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => SettingsScreen(
-                  store: widget.settingsStore, runner: widget.runner),
+              builder: (_) =>
+                  SettingsScreen(store: widget.settingsStore, runner: widget.runner),
             )),
-            size: 40,
           ),
           GlassIconButton(
             icon: const Icon(Icons.tune),
@@ -285,7 +283,6 @@ class _ChatScreenState extends State<ChatScreen> {
               builder: (_) =>
                   DebugPanel(monitor: widget.monitor, router: widget.router),
             )),
-            size: 40,
           ),
         ],
       ),
@@ -369,7 +366,8 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'A private assistant that runs entirely on your phone.\n'
-              'It answers with two on-device models — and tells you which one did.',
+              'It answers with two on-device models — and tells you which one did.\n'
+              'Fully on-device · works offline · no internet permission.',
               textAlign: TextAlign.center,
               style: t.bodyMedium?.copyWith(color: cs.textSecondary, height: 1.4),
             ),

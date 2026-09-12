@@ -1,0 +1,17 @@
+%% Candor architecture — paste into draw.io (Arrange > Insert > Advanced > Mermaid)
+flowchart LR
+    Q["User query<br/>typed or spoken · on-device STT"] --> IM{"Intent match<br/>regex classifier"}
+    IM -->|skill| SK["Skills engine<br/>calculator · units · dates<br/>memo · dice · text"]
+    IM -->|action| PA["Platform actions<br/>timer · app · SMS<br/>email · settings"]
+    IM -->|model| T1["Tier-1 · Qwen2.5 0.5B<br/>Q4_K_M · answers by default"]
+    T1 --> R{"Router<br/>conf &lt; 0.7, empty<br/>or refusal?"}
+    DG["Device gate<br/>battery ≥ 20%<br/>thermal &lt; MODERATE"] --> R
+    R -->|"confident"| A1["Answer<br/>badge: Tier-1"]
+    R -->|"low + headroom"| T2["Tier-2 · Qwen2.5 1.5B<br/>escalated answer"]
+    R -->|"low, no headroom"| CN["Tier-1 kept<br/>badge: constrained + reason"]
+    T2 --> A2["Answer<br/>badge: Tier-2"]
+    SK --> OUT["Every answer carries<br/>tier · latency · confidence<br/>escalations logged to JSONL"]
+    PA --> OUT
+    A1 --> OUT
+    A2 --> OUT
+    CN --> OUT
