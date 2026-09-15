@@ -19,9 +19,9 @@ import 'debug_panel.dart';
 import 'settings_screen.dart';
 import 'skills_screen.dart';
 
-/// Suggested first prompts. Chosen to demo both paths: the third typically
-/// trips Tier-1's low/missing confidence and escalates to Tier-2; the last
-/// runs a tool action instead of a model pass.
+/// Suggested first prompts, one per path: a skill (no model), a Tier-1
+/// answer, a comparison the router always sends to Tier-2 (Router.needsDepth),
+/// and a platform tool.
 const _suggestions = [
   'What is the square root of 144?',
   'Explain recursion to a 12-year-old',
@@ -54,6 +54,8 @@ class _ChatScreenState extends State<ChatScreen> {
   late Conversation _active;
   late List<ChatMessage> _messages;
   bool _sending = false;
+  Tier? _stage; // model running for the in-flight reply
+  final _clock = Stopwatch(); // elapsed time shown while it runs
 
   @override
   void initState() {
@@ -81,7 +83,6 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _active = picked;
         _messages = picked.messages;
-        _sending = false;
         _input.clear();
       });
       if (_messages.isNotEmpty) _scrollToBottom();
@@ -97,23 +98,23 @@ class _ChatScreenState extends State<ChatScreen> {
     if (example != null && mounted) await _send(example);
   }
 
-  /// Persist the thread: derive a title from the first user message and make
-  /// sure the conversation lives in the store before saving.
-  void _persist() {
-    if (_active.title.isEmpty) {
-      for (final m in _messages) {
+  /// Persist a thread: derive a title from its first user message and make
+  /// sure it lives in the store before saving.
+  void _persist(Conversation c) {
+    if (c.title.isEmpty) {
+      for (final m in c.messages) {
         if (m.fromUser && m.text.trim().isNotEmpty) {
-          _active.title = m.text.trim().replaceAll('\n', ' ');
-          if (_active.title.length > 40) {
-            _active.title = '${_active.title.substring(0, 40)}…';
+          c.title = m.text.trim().replaceAll('\n', ' ');
+          if (c.title.length > 40) {
+            c.title = '${c.title.substring(0, 40)}…';
           }
           break;
         }
       }
     }
-    _active.updatedAt = DateTime.now().millisecondsSinceEpoch;
-    if (!widget.chatStore.conversations.any((c) => c.id == _active.id)) {
-      widget.chatStore.conversations.add(_active);
+    c.updatedAt = DateTime.now().millisecondsSinceEpoch;
+    if (!widget.chatStore.conversations.any((x) => x.id == c.id)) {
+      widget.chatStore.conversations.add(c);
     }
     unawaited(widget.chatStore.save().catchError((_) {}));
   }
@@ -123,18 +124,37 @@ class _ChatScreenState extends State<ChatScreen> {
     if (query.isEmpty || _sending) return;
     _input.clear();
 
+    // The thread this turn belongs to, even if the user opens another chat
+    // while the model is still running.
+    final convo = _active;
     // Prior turns (excludes this query and the streaming draft) give the
     // model multi-turn context (PRD §4.1 personalization).
-    final history = List<ChatMessage>.from(_messages);
+    final history = List<ChatMessage>.from(convo.messages);
 
     setState(() {
-      _messages.add(ChatMessage(fromUser: true, text: query));
-      _messages.add(ChatMessage(fromUser: false, text: '', streaming: true));
+      convo.messages.add(ChatMessage(fromUser: true, text: query));
+      convo.messages.add(ChatMessage(fromUser: false, text: '', streaming: true));
       _sending = true;
+      _stage = null;
     });
+    _clock
+      ..reset()
+      ..start();
     _scrollToBottom();
 
-    final draft = _messages.last;
+    final draft = convo.messages.last;
+
+    // Always lands the reply and saves it, mounted or not.
+    void finish(void Function() update) {
+      update();
+      draft.streaming = false;
+      _sending = false;
+      _clock.stop();
+      _persist(convo);
+      if (!mounted) return;
+      setState(() {});
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: true));
+    }
 
     // Tool context (PRD §6.7): a concrete action ask (open app, timer, SMS,
     // email, website) is executed on-device instead of a model pass.
@@ -142,15 +162,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (tool != null) {
       draft.toolKind = tool.kind;
       final failure = await _executor.run(tool);
-      if (!mounted) return;
-      setState(() {
-        draft
-          ..streaming = false
-          ..text = failure ?? tool.label;
-        _sending = false;
-      });
-      _persist();
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: true));
+      finish(() => draft.text = failure ?? tool.label);
       return;
     }
 
@@ -160,42 +172,26 @@ class _ChatScreenState extends State<ChatScreen> {
     if (skill != null) {
       draft.toolKind = skill.kind;
       final result = await _skills.run(skill);
-      if (!mounted) return;
-      setState(() {
-        draft
-          ..streaming = false
-          ..text = result;
-        _sending = false;
-      });
-      _persist();
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: true));
+      finish(() => draft.text = result);
       return;
     }
 
     try {
       final result = await widget.router.answer(query,
-          history: history, onToken: (t) => _appendToken(draft, t));
-      setState(() {
-        draft
-          ..streaming = false
-          ..text = result.text
-          ..tier = result.tier
-          ..note = result.note
-          ..confidence = result.confidence
-          ..latencyMs = result.latencyMs;
-        _sending = false;
-      });
-      _persist();
+          history: history,
+          onStage: (t) {
+            if (mounted) setState(() => _stage = t);
+          },
+          onToken: (t) => _appendToken(draft, t));
+      finish(() => draft
+        ..text = result.text
+        ..tier = result.tier
+        ..note = result.note
+        ..confidence = result.confidence
+        ..latencyMs = result.latencyMs);
     } catch (_) {
-      setState(() {
-        draft
-          ..streaming = false
-          ..text = 'Something went wrong running the model.';
-        _sending = false;
-      });
-      _persist();
+      finish(() => draft.text = 'Something went wrong running the model.');
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(animated: true));
   }
 
   void _appendToken(ChatMessage draft, String token) {
@@ -230,20 +226,16 @@ class _ChatScreenState extends State<ChatScreen> {
         titleSpacing: 20,
         title: Row(
           children: [
-            GlassCircle(
-              size: 28,
-              surfaceLevel: GlassSurfaceLevel.level3,
-              border: GlassBorder.normal,
-              child: Text('C',
-                  style:
-                      TextStyle(color: cs.accent, fontWeight: FontWeight.w700, fontSize: 15)),
+            // Flexible: four actions + wordmark must fit a 360dp phone.
+            Flexible(
+              child: Text('Candor',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w700, color: cs.textPrimary)),
             ),
-            const SizedBox(width: 10),
-            Text('Candor',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w700, color: cs.textPrimary)),
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -261,16 +253,19 @@ class _ChatScreenState extends State<ChatScreen> {
           GlassIconButton(
             icon: const Icon(Icons.grid_view_outlined),
             tooltip: 'Skills',
+            size: 40,
             onPressed: _openSkills,
           ),
           GlassIconButton(
             icon: const Icon(Icons.chat_bubble_outline),
             tooltip: 'Chat history',
+            size: 40,
             onPressed: _openConversations,
           ),
           GlassIconButton(
             icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
+            size: 40,
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) =>
                   SettingsScreen(store: widget.settingsStore, runner: widget.runner),
@@ -279,6 +274,7 @@ class _ChatScreenState extends State<ChatScreen> {
           GlassIconButton(
             icon: const Icon(Icons.tune),
             tooltip: 'Debug & demo controls',
+            size: 40,
             onPressed: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) =>
                   DebugPanel(monitor: widget.monitor, router: widget.router),
@@ -288,6 +284,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
+          SizedBox(height: GlassAppBar.bodyTop(context)),
           _SimulatedBanner(monitor: widget.monitor),
           Expanded(
             child: _messages.isEmpty
@@ -296,8 +293,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                     itemCount: _messages.length,
-                    itemBuilder: (_, i) =>
-                        _Reveal(child: _ChatRow(message: _messages[i])),
+                    itemBuilder: (_, i) => _Reveal(
+                        child: _ChatRow(
+                            message: _messages[i], stage: _stage, clock: _clock)),
                   ),
           ),
           _Composer(controller: _input, sending: _sending, onSend: _send),
@@ -441,7 +439,9 @@ class _RevealState extends State<_Reveal>
 
 class _ChatRow extends StatelessWidget {
   final ChatMessage message;
-  const _ChatRow({required this.message});
+  final Tier? stage; // what's running, read only while streaming
+  final Stopwatch? clock;
+  const _ChatRow({required this.message, this.stage, this.clock});
 
   @override
   Widget build(BuildContext context) {
@@ -475,21 +475,24 @@ class _ChatRow extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (message.streaming)
+            if (message.streaming && message.text.isEmpty)
               GlassCard(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 surfaceLevel: GlassSurfaceLevel.level2,
                 border: GlassBorder.subtle,
                 borderRadius: 18,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [const _TypingDots(), const SizedBox(width: 10)],
-                ),
+                child: _TypingDots(label: _stageLabel(stage), clock: clock),
               )
-            else if (message.text.isNotEmpty)
+            // Tool/skill results render once, as the action card below.
+            else if (message.toolKind == null && message.text.isNotEmpty)
               GestureDetector(
                 onLongPress: () => _showMessageActions(context, message.text),
                 child: _Markdown(text: message.text),
+              ),
+            if (message.streaming && message.text.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 18),
+                child: _TypingDots(label: _stageLabel(stage), clock: clock),
               ),
             if (message.toolKind != null && !message.streaming)
               GestureDetector(
@@ -686,8 +689,9 @@ String _tierExplanation(FinalTier tier) => switch (tier) {
       FinalTier.tier1 => 'The small on-device model (0.5B) answered with high '
           'confidence, so the larger model was not needed. Fastest and most '
           'efficient path.',
-      FinalTier.tier2 => 'The small model was unsure or stuck, so Candor '
-          'escalated to the larger on-device model (1.5B) for a better answer.',
+      FinalTier.tier2 => 'The larger on-device model (1.5B) answered: either '
+          'the question needed multi-step reasoning, or the small model was '
+          'unsure or stuck on it.',
       FinalTier.tier1Constrained => 'The small model was unsure, but this '
           'device is constrained (low battery or heat), so the larger model '
           'was skipped to protect it. This answer may be less accurate.',
@@ -746,6 +750,12 @@ void _showTierInfo(BuildContext context, ChatMessage message) {
   );
 }
 
+String _stageLabel(Tier? stage) => switch (stage) {
+      Tier.tier1 => 'Tier-1 · 0.5B thinking',
+      Tier.tier2 => 'Tier-2 · 1.5B answering',
+      null => 'Working',
+    };
+
 Color _tierColor(FinalTier tier, ColorScheme cs) => switch (tier) {
       FinalTier.tier1 => cs.tier1,
       FinalTier.tier2 => cs.tier2,
@@ -753,7 +763,9 @@ Color _tierColor(FinalTier tier, ColorScheme cs) => switch (tier) {
     };
 
 class _TypingDots extends StatefulWidget {
-  const _TypingDots();
+  final String? label;
+  final Stopwatch? clock;
+  const _TypingDots({this.label, this.clock});
 
   @override
   State<_TypingDots> createState() => _TypingDotsState();
@@ -793,6 +805,18 @@ class _TypingDotsState extends State<_TypingDots>
                 decoration:
                     BoxDecoration(color: color, shape: BoxShape.circle),
               ),
+            ),
+          ],
+          if (widget.label != null) ...[
+            const SizedBox(width: 10),
+            Text(
+              widget.clock == null
+                  ? widget.label!
+                  : '${widget.label} · ${widget.clock!.elapsed.inSeconds}s',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.textSecondary),
             ),
           ],
         ],

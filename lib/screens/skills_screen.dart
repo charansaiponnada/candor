@@ -21,7 +21,7 @@ class SkillsScreen extends StatelessWidget {
         title: const Text('Skills'),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 80, 16, 24),
+        padding: EdgeInsets.fromLTRB(16, GlassAppBar.bodyTop(context) + 8, 16, 24),
         children: [
           Row(
             children: [
@@ -48,6 +48,8 @@ class SkillsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           GridView.builder(
+            // Without this the grid re-applies the app-bar inset as a big gap.
+            padding: EdgeInsets.zero,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(

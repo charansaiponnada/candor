@@ -38,7 +38,15 @@ class MainActivity : FlutterActivity() {
                         if (name == null) {
                             result.error("BAD_ARGS", "name is required", null)
                         } else {
-                            result.success(prepareModel(name))
+                            // Copying ~1.5 GB on the main thread froze first launch
+                            // into an ANR; copy off-thread, answer on the main thread.
+                            Thread {
+                                val r = runCatching { prepareModel(name) }
+                                runOnUiThread {
+                                    r.fold({ result.success(it) },
+                                        { result.error("PREPARE_FAILED", it.message, null) })
+                                }
+                            }.start()
                         }
                     }
                     else -> result.notImplemented()
@@ -114,10 +122,14 @@ class MainActivity : FlutterActivity() {
     private fun prepareModel(name: String): String {
         val out = File(filesDir, "models/$name")
         if (out.exists()) return out.absolutePath
+        // Copy to .part and rename, so an app killed mid-copy can't leave a
+        // truncated model that exists() would trust forever.
+        out.parentFile?.mkdirs()
+        val tmp = File(out.parentFile, "$name.part")
         assets.open("models/$name").use { input ->
-            out.parentFile?.mkdirs()
-            out.outputStream().use { output -> input.copyTo(output) }
+            tmp.outputStream().use { output -> input.copyTo(output) }
         }
+        check(tmp.renameTo(out)) { "could not finalize model file $name" }
         return out.absolutePath
     }
 

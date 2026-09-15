@@ -198,6 +198,118 @@ void main() {
       expect(r.text, "I can't answer that.");
       expect(r.note, contains('declined'));
     });
+    test('multi-step question skips the Tier-1 draft, goes straight to Tier-2',
+        () async {
+      final r = await makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.95, // the 0.5B would have been (over)confident
+      ).answer("What's the difference between a LAN and a WAN?");
+
+      expect(r.tier, FinalTier.tier2);
+      expect(runner.generations, [Tier.tier2]);
+      expect(r.note, contains('Multi-step'));
+      final record =
+          jsonDecode(logFile.readAsLinesSync().single) as Map<String, Object?>;
+      expect(record['escalated'], true);
+      expect(record['tier1Answer'], '');
+    });
+
+    test('multi-step question on a constrained device -> Tier-1 (constrained)',
+        () async {
+      final r = await makeRouter(
+        const DeviceState(batteryPercent: 5, thermal: ThermalLevel.none),
+        confidence: 0.95,
+      ).answer('Compare TCP and UDP');
+
+      expect(r.tier, FinalTier.tier1Constrained);
+      expect(r.text, 't1 answer');
+      expect(r.note, isNotNull);
+      expect(runner.generations, [Tier.tier1]);
+    });
+
+    test('straight-to-Tier-2 refusal falls back to a fresh Tier-1 answer',
+        () async {
+      final routing = makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+      );
+      runner.resultBuilder = (tier) => tier == Tier.tier1
+          ? const ModelResult(
+              text: 'A LAN is local; a WAN spans cities.', confidence: 0.9)
+          : const ModelResult(
+              text: "I'm sorry, I can't answer that.", confidence: 0);
+
+      final r = await routing.answer('difference between LAN and WAN');
+      expect(r.tier, FinalTier.tier1);
+      expect(r.text, startsWith('A LAN'));
+      expect(runner.generations, [Tier.tier2, Tier.tier1]);
+    });
+
+    test('hedged Tier-1 answer escalates despite a high self-score', () async {
+      final routing = makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+      );
+      runner.resultBuilder = (tier) => tier == Tier.tier1
+          ? const ModelResult(
+              text: "I'm not sure, but it might be 1947.",
+              confidence: 0.95,
+              tagged: true)
+          : const ModelResult(text: 't2 answer', confidence: 0);
+
+      final r = await routing.answer('when was the transistor invented');
+      expect(r.tier, FinalTier.tier2);
+    });
+
+    test('a written conf:0 is low confidence, not a missing tag', () async {
+      final routing = makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+      );
+      runner.resultBuilder = (tier) => tier == Tier.tier1
+          ? const ModelResult(
+              text: 'Maybe Canberra.', confidence: 0, tagged: true)
+          : const ModelResult(text: 't2 answer', confidence: 0);
+
+      final r = await routing.answer('capital of australia');
+      expect(r.tier, FinalTier.tier2);
+    });
+
+    test('onStage reports each model as it starts', () async {
+      final stages = <Tier>[];
+      await makeRouter(
+        const DeviceState(batteryPercent: 90, thermal: ThermalLevel.none),
+        confidence: 0.2,
+      ).answer('q', onStage: stages.add);
+      expect(stages, [Tier.tier1, Tier.tier2]);
+    });
+  });
+
+  group('Multi-step gate (query side)', () {
+    const depth = [
+      "What's the difference between a LAN and a WAN?",
+      'Compare Python and Java for beginners',
+      'cats vs dogs as pets',
+      'Explain step by step how to change a tire',
+      'pros and cons of solar panels',
+      'Solve 2x + 3 = 7',
+      'Write a python function that reverses a list',
+      'What is DNS? How does it relate to IP addresses?',
+      'I am planning a trip to three cities over ten days with a small budget '
+          'and two kids, and I want to know which order to visit them in and '
+          'what to pack',
+    ];
+    const simple = [
+      'Explain recursion to a 12-year-old', // demo prompt: stays Tier-1
+      'why is the sky blue',
+      'write me a haiku about rain',
+      'what is python',
+      'Tell me a joke',
+      'fix my mood with a compliment',
+    ];
+    for (final q in depth) {
+      test('multi-step: "$q"', () => expect(Router.needsDepth(q), isTrue));
+    }
+    for (final q in simple) {
+      test('simple: "$q"', () => expect(Router.needsDepth(q), isFalse));
+    }
   });
 
   group('Refusal gate', () {
@@ -317,6 +429,24 @@ void main() {
       expect(r.$1, startsWith('My confidence'));
       expect(r.$2, 0.0);
       expect(r.$1, contains('here it goes'));
+    });
+
+    test('tolerates the tag variants the 0.5B really writes', () {
+      expect(ModelRunner.cleanTaggedAnswer('**conf:0.4**\nParis.'),
+          ('Paris.', 0.4, true));
+      expect(ModelRunner.cleanTaggedAnswer('conf: 0.4.\nParis.'),
+          ('Paris.', 0.4, true));
+      expect(ModelRunner.cleanTaggedAnswer('Line 1: conf:0.6\nParis.'),
+          ('Paris.', 0.6, true));
+      expect(ModelRunner.cleanTaggedAnswer('conf:0.3 Paris is the capital.'),
+          ('Paris is the capital.', 0.3, true));
+      expect(ModelRunner.cleanTaggedAnswer('Paris is the capital.\nconf:0.9'),
+          ('Paris is the capital.', 0.9, true));
+    });
+
+    test('a written zero is tagged; a missing tag is not', () {
+      expect(ModelRunner.cleanTaggedAnswer('conf:0\nNo idea.').$3, isTrue);
+      expect(ModelRunner.cleanTaggedAnswer('No idea.').$3, isFalse);
     });
   });
 

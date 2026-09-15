@@ -104,7 +104,7 @@ class _PromptLabScreenState extends State<PromptLabScreen> {
         title: const Text('Prompt Lab'),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 80, 16, 24),
+        padding: EdgeInsets.fromLTRB(16, GlassAppBar.bodyTop(context) + 8, 16, 24),
         children: [
           GlassSegmentedButton<Tier>(
             segments: const [

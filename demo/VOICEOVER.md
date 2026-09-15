@@ -33,9 +33,9 @@ Length: ~5 min · Read naturally, no rush · Sections are timecoded to the on-sc
 *On screen: tap the recursion prompt → streaming markdown answer + Tier-1 conf badge.*
 
 ## 6. Demo — escalation to Tier-2 (2:30 – 3:20)
-> "Here's where the cascade matters. This question is edge-of-knowledge for the 0.5B — it flags low confidence, Candor promotes the query to the 1.5B model, and the answer arrives under a **Tier-2 badge**. Same app, same prompt box — the router decides, transparently."
+> "Here's where the cascade matters. A comparison like this needs multi-step reasoning, so the router sends it straight to the 1.5B model — no wasted pass on the small one. Watch the status line: *Tier-2 · 1.5B answering*, with a live timer, while the answer streams in. It lands under a **Tier-2 badge** with the reason — multi-step question. The same router also escalates whenever the small model hedges, refuses, or scores itself low."
 
-*On screen: tap LAN/WAN question → Tier-1 silhouette → Tier-2 answer + badge. (If it stays Tier-1 live, the voiceover should say: "...and when it does have confidence, it still tells you exactly which model and confidence score produced the answer.")*
+*On screen: LAN/WAN question → "Tier-2 · 1.5B answering · Ns" → streaming answer → Tier-2 pill + "Multi-step question" note → tap the pill for the explanation sheet. (About 60 s on the SM-E366B — trim the wait in the edit.)*
 
 ## 7. Demo — platform tools (3:20 – 3:50)
 > "Candor doesn't just talk — it acts. Asking for a timer hands the request to the phone's own timer app via Android intents. It can also launch apps, open websites, draft SMS and email, or jump into system settings — all triggered from plain chat."
@@ -49,7 +49,7 @@ Length: ~5 min · Read naturally, no rush · Sections are timecoded to the on-sc
 
 ## 9. Proof screens — debug & settings (4:30 – 5:05)
 > "The Debug and Demo panel shows live device state — battery and thermal — and includes a simulated constrained mode that blocks the larger model, exactly as the router would if your phone were low on power.
-> Settings cover appearance, your name, installed models, and a Vulkan GPU toggle for faster inference on supported chips."
+> Settings cover your name and persona, the model used for each tier, and a Vulkan GPU toggle for faster inference on supported chips."
 
 *On screen: Debug panel, flip "Simulate constrained mode" → Settings showing models and GPU toggle.*
 

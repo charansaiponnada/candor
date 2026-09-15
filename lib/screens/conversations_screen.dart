@@ -62,7 +62,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
               ),
             )
           : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 80, 16, 88),
+              padding: EdgeInsets.fromLTRB(16, GlassAppBar.bodyTop(context) + 8, 16, 88),
               itemCount: sorted.length,
               itemBuilder: (context, i) {
                 final c = sorted[i];

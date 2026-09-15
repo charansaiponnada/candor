@@ -47,7 +47,7 @@ class _DebugPanelState extends State<DebugPanel> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 80, 16, 32),
+        padding: EdgeInsets.fromLTRB(16, GlassAppBar.bodyTop(context) + 8, 16, 32),
         children: [
           Text('Device state',
               style: Theme.of(context)
@@ -201,7 +201,7 @@ class _LatencyCard extends StatelessWidget {
       child: Column(
         children: [
           _latencyTile(context, 'Tier-1 only', router.lastTier1Ms, router.tier1Count, '${router.constrainedCount.value} constrained'),
-          _latencyTile(context, 'Escalated (Tier-1 → Tier-2)', router.lastEscalatedMs, router.tier2Count, null),
+          _latencyTile(context, 'Tier-2 (escalated or multi-step)', router.lastEscalatedMs, router.tier2Count, null),
         ],
       ),
     );

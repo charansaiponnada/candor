@@ -142,10 +142,12 @@ class Conversation {
 class ModelResult {
   final String text;
   final double confidence; // only meaningful for Tier-1
+  final bool tagged; // Tier-1 wrote a conf tag, so a 0.0 is real, not missing
   final double latencyMs;
   const ModelResult({
     required this.text,
     required this.confidence,
+    this.tagged = false,
     this.latencyMs = 0,
   });
 }

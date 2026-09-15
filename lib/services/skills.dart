@@ -110,7 +110,7 @@ class SkillEngine {
       caseSensitive: false);
   static final _calcOpRe = RegExp(r'[+\-*/%^]');
   static final _sqrtRe = RegExp(
-      r"^(?:(?:what|what's|what is)\s+(?:the\s+)?)?square root of\s*\(?(\d+(?:\.\d+)?)\)?\s*\??$",
+      r"^(?:(?:what|what's|what is)\s+(?:the\s+)?)?square\s+root\s+(?:of\s+)?\(?(\d+(?:\.\d+)?)\)?\s*\??$",
       caseSensitive: false);
   static final _sqrtShortRe =
       RegExp(r'^sqrt\s*\(?(\d+(?:\.\d+)?)\)?\s*\??$', caseSensitive: false);

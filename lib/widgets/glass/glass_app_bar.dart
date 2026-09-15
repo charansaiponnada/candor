@@ -8,6 +8,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
+import 'glass_button.dart';
 import 'glass_container.dart';
 
 /// A glass app bar that blurs content behind it.
@@ -49,7 +50,13 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Widget? flexibleSpace;
 
   @override
-  Size get preferredSize => Size.fromHeight(height + (bottom?.preferredSize.height ?? 0));
+  Size get preferredSize =>
+      Size.fromHeight(height + (bottom?.preferredSize.height ?? 0));
+
+  /// Where content starts under a default-height bar with
+  /// `extendBodyBehindAppBar`. Call with a context *above* the Scaffold.
+  static double bodyTop(BuildContext context) =>
+      MediaQuery.paddingOf(context).top + kToolbarHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -58,9 +65,23 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
       bottom: Radius.circular(CandorRadius.lg),
     );
 
-    final bar = Container(
-      height: height,
-      padding: padding ?? const EdgeInsets.symmetric(horizontal: 16),
+    // Scaffold puts the bar at the very top of the screen, so it must include
+    // the status bar; the SafeArea below then leaves a full toolbar height.
+    final topInset = MediaQuery.paddingOf(context).top;
+    final barHeight = height + topInset;
+    final lead =
+        leading ??
+        ((ModalRoute.of(context)?.canPop ?? false)
+            ? GlassIconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                tooltip: 'Back',
+                size: 40,
+                onPressed: () => Navigator.of(context).maybePop(),
+              )
+            : null);
+
+    final bar = SizedBox(
+      height: barHeight,
       child: Stack(
         children: [
           // Glass background with blur
@@ -108,36 +129,48 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
           ),
-          // Content
+          // Content. Padded on its own so the glass spans the full width.
           SafeArea(
             bottom: false,
-            child: Row(
-              children: [
-                if (leading != null) ...[
-                  leading!,
-                  SizedBox(width: titleSpacing ?? 16),
-                ],
-                if (title != null)
-                  Expanded(
-                    child: centerTitle
-                        ? Center(child: title!)
-                        : Align(alignment: Alignment.centerLeft, child: title!),
-                  ),
-                if (actions != null) ...[
-                  ...actions!.map((a) => Padding(
+            child: Padding(
+              padding: padding ?? const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  if (lead != null) ...[
+                    lead,
+                    SizedBox(width: titleSpacing ?? 16),
+                  ],
+                  if (title != null)
+                    Expanded(
+                      child: centerTitle
+                          ? Center(child: title!)
+                          : Align(
+                              alignment: Alignment.centerLeft,
+                              child: title!,
+                            ),
+                    ),
+                  if (actions != null) ...[
+                    ...actions!.map(
+                      (a) => Padding(
                         padding: const EdgeInsets.only(left: 8),
                         child: a,
-                      )),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           // Optional flexible space (e.g., for tabs)
           if (flexibleSpace != null)
             Positioned.fill(
-              top: height - (flexibleSpace is PreferredSizeWidget
-                  ? (flexibleSpace as PreferredSizeWidget).preferredSize.height
-                  : 0),
+              top:
+                  barHeight -
+                  (flexibleSpace is PreferredSizeWidget
+                      ? (flexibleSpace as PreferredSizeWidget)
+                            .preferredSize
+                            .height
+                      : 0),
               child: flexibleSpace!,
             ),
         ],
@@ -148,13 +181,13 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(height: height, child: bar),
+          SizedBox(height: barHeight, child: bar),
           bottom!,
         ],
       );
     }
 
-    return SizedBox(height: height, child: bar);
+    return SizedBox(height: barHeight, child: bar);
   }
 }
 
@@ -224,9 +257,15 @@ class GlassSliverAppBar extends StatelessWidget {
     );
   }
 
-  Widget _buildGlassBackground(BuildContext context, ColorScheme colors, double height) {
+  Widget _buildGlassBackground(
+    BuildContext context,
+    ColorScheme colors,
+    double height,
+  ) {
     return ClipRRect(
-      borderRadius: BorderRadius.vertical(bottom: Radius.circular(CandorRadius.lg)),
+      borderRadius: BorderRadius.vertical(
+        bottom: Radius.circular(CandorRadius.lg),
+      ),
       child: BackdropFilter(
         filter: ImageFilter.blur(
           sigmaX: switch (blurStrength) {
@@ -303,7 +342,9 @@ class GlassNavigationBar extends StatelessWidget {
       height: height,
       padding: padding,
       child: ClipRRect(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(CandorRadius.xl)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(CandorRadius.xl),
+        ),
         child: BackdropFilter(
           filter: ImageFilter.blur(
             sigmaX: switch (blurStrength) {
@@ -362,7 +403,9 @@ class GlassNavigationBar extends StatelessWidget {
                         curve: Curves.easeOutCubic,
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(CandorRadius.pill),
+                          borderRadius: BorderRadius.circular(
+                            CandorRadius.pill,
+                          ),
                           color: isSelected
                               ? colors.accentContainer
                               : Colors.transparent,
@@ -385,11 +428,14 @@ class GlassNavigationBar extends StatelessWidget {
                               const SizedBox(height: 2),
                               Text(
                                 dest.label,
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(
                                       color: isSelected
                                           ? colors.accent
                                           : colors.textTertiary,
-                                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                                      fontWeight: isSelected
+                                          ? FontWeight.w600
+                                          : FontWeight.w500,
                                     ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -453,7 +499,8 @@ class GlassSearchBar extends StatelessWidget {
       borderRadius: CandorRadius.pill,
       child: Row(
         children: [
-          leading ?? Icon(Icons.search_rounded, color: colors.textTertiary, size: 22),
+          leading ??
+              Icon(Icons.search_rounded, color: colors.textTertiary, size: 22),
           const SizedBox(width: 10),
           Expanded(
             child: TextField(

@@ -8,6 +8,11 @@ why — "an assistant that tells you when it's holding back."
 
 Zero network calls at inference time. Battery/thermal state gate the escalation.
 
+**Demo video:** [youtu.be/fccvX6XuPkw](https://youtu.be/fccvX6XuPkw) (recorded on an earlier build; the
+screenshots below show the current one)
+
+[![Candor demo video](https://img.youtube.com/vi/fccvX6XuPkw/hqdefault.jpg)](https://youtu.be/fccvX6XuPkw)
+
 ## Hackathon (2026)
 
 **Privacy-first on-device SLM assistant for limited/unreliable connectivity.**
@@ -30,6 +35,22 @@ Zero network calls at inference time. Battery/thermal state gate the escalation.
 - **Proven, not promised.** The on-device **Models & Benchmarks** screen times
   load + tokens/sec for every bundled GGUF on this phone. Try the **Prompt Lab**
   to tune sampling live.
+
+## Screenshots
+
+Captured on a Samsung Galaxy SM-E366B (CPU only, release build).
+
+| Tier-1 answers by default | Tier-2 streams live for a multi-step ask | Every answer names its tier and why |
+|---|---|---|
+| <img src="docs/screenshots/chat_tier1.png" width="240"> | <img src="docs/screenshots/chat_tier2_streaming.png" width="240"> | <img src="docs/screenshots/chat_tier2.png" width="240"> |
+
+| Tap the pill: why this model answered | Skills hub (no model pass) | Real device state + constrained-mode demo |
+|---|---|---|
+| <img src="docs/screenshots/tier_sheet.png" width="240"> | <img src="docs/screenshots/skills.png" width="240"> | <img src="docs/screenshots/debug.png" width="240"> |
+
+| First screen | Settings |
+|---|---|
+| <img src="docs/screenshots/chat_empty.png" width="240"> | <img src="docs/screenshots/settings.png" width="240"> |
 
 ## Architecture
 
@@ -65,8 +86,7 @@ lib/
     benchmarks_screen.dart on-device proof: per-model size, load ms, tokens/sec, device
     prompt_lab_screen.dart per-tier sampling sliders (temp/top-k/top-p/penalty) + sandbox
     conversations_screen.dart chat history list: newest-first, swipe-to-delete, "New chat"
-    settings_screen.dart   name/persona, per-tier model dropdowns, GPU (Vulkan) switch,
-                           theme (system/light/dark)
+    settings_screen.dart   name/persona, per-tier model dropdowns, GPU (Vulkan) switch
                            with a live capability line
     debug_panel.dart       live device readout, latency pitch data, simulate toggle
 android/…/MainActivity.kt  one MethodChannel "candor/device":
@@ -77,30 +97,40 @@ android/…/MainActivity.kt  one MethodChannel "candor/device":
                            modelSizes (bytes on disk per prepared model)
 test/                      decision-table + log + prompt-assembly tests with stubbed
                            runner/monitor + store/conversation/settings/skills tests
-                           (109 tests total, all pass)
+                           (133 tests total, all pass)
 ```
 
 ### Router decision table (PRD §6.4)
 
-Per query: run Tier-1 → read device state → decide.
+Per query: read device state → multi-step question? → otherwise run Tier-1 → decide.
 
-Escalate to Tier-2 only when Tier-1 is *low*:
+- **multi-step** (`Router.needsDepth`, judged on the *query*) = a comparison
+  ("difference between", "compare", "vs"), step-by-step, pros/cons,
+  solve/prove/analyze, code ("write a function…"), two or more questions, or
+  30+ words. The 0.5B scores itself 0.95–0.99 even when it confabulates, so
+  its self-score alone almost never escalated these. With device headroom they
+  go straight to Tier-2 — no throwaway 0.5B pass, no extra model swap.
+- **low** (judged on Tier-1's answer) = a written `conf:<X>` < 0.7 (a written
+  `0` or `x` counts), OR an empty answer, OR a refusal, OR a hedge ("I'm not
+  sure", "I don't know").
+- A **missing tag is trusted** when the answer is substantive — the 0.5B omits
+  its tag on good answers too. The parser accepts `**conf:0.9**`, `conf: 0.9.`,
+  `Line 1: conf:0.9`, an inline `conf:0.9 answer…` and a tag on the last line.
 
-- **low** = a parsed `conf:<X>` tag < 0.7, OR the answer is empty, OR the
-  answer looks like a refusal (measured on-device: the 0.5B reports 0.95–0.99
-  even when it confabulates, but refuses or goes quiet when stuck).
-- A **missing/unparsable tag parses to 0.0 but is trusted** when the answer is
-  substantive and non-refusal — the 0.5B omits its tag on good answers too.
-
-| Tier-1 output | Device state (battery ≥ 20% AND thermal < MODERATE) | Result |
+| Query / Tier-1 output | Device (battery ≥ 20% AND thermal < MODERATE) | Result |
 |---|---|---|
-| parsed conf ≥ 0.7 (or missing tag + substantive answer) | any | Tier-1 answer, badge `Tier-1` |
-| low (parsed conf < 0.7, or empty, or refusal) | OK | run Tier-2, badge `Tier-2` |
-| low | constrained | Tier-1 answer anyway, badge `Tier-1 (constrained)` + degradation note |
+| multi-step query | OK | Tier-2 only, badge `Tier-2` + "Multi-step question" note |
+| conf ≥ 0.7 (or missing tag + substantive answer) | any | Tier-1 answer, badge `Tier-1` |
+| low | OK | run Tier-2, badge `Tier-2` |
+| low or multi-step | constrained | Tier-1 answer anyway, badge `Tier-1 (constrained)` + degradation note |
 
-If Tier-2 itself declines (refusal), the final answer falls back to the
-Tier-1 draft with the note "The larger on-device model declined this ask;
-kept the Tier-1 answer." — a failure never degrades into a canned apology.
+If Tier-2 itself declines (refusal), the final answer falls back to a Tier-1
+answer (run then, if the query went straight to Tier-2) with the note "The
+larger on-device model declined this ask; kept the Tier-1 answer." — a failure
+never degrades into a canned apology.
+
+While a reply runs, the chat shows which model is working and for how long
+(`Tier-2 · 1.5B answering · 12s`), and Tier-2's text streams in live.
 
 Every query appends one JSON line to `<app-docs>/escalations.jsonl`
 (`EscalationRecord`), the input for the future self-improvement research.

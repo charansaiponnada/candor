@@ -52,6 +52,10 @@ class CandorColors {
   static const Color tier2 = Color(0xFF7C4DFF); // Deep purple
   static const Color tier1Constrained = Color(0xFFFF6B6B); // Red
 
+  // Opaque surface for overlays (sheets, dialogs, snackbars): a translucent
+  // one drew their text straight over the chat underneath.
+  static const Color overlay = Color(0xFF161616);
+
   // Shadow for glass elevation
   static const Color glassShadow = Color(0x4D000000); // 30% black
   static const Color glassShadowStrong = Color(0x66000000); // 40% black
@@ -284,7 +288,7 @@ ThemeData buildCandorTheme({Brightness brightness = Brightness.dark}) {
 
     // ── Dialogs & Bottom Sheets ──
     dialogTheme: DialogThemeData(
-      backgroundColor: Colors.transparent,
+      backgroundColor: CandorColors.overlay,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       shadowColor: Colors.transparent,
@@ -300,14 +304,14 @@ ThemeData buildCandorTheme({Brightness brightness = Brightness.dark}) {
       ),
     ),
     bottomSheetTheme: BottomSheetThemeData(
-      backgroundColor: Colors.transparent,
+      backgroundColor: CandorColors.overlay,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       shadowColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(CandorRadius.xl)),
       ),
-      modalBackgroundColor: Colors.transparent,
+      modalBackgroundColor: CandorColors.overlay,
     ),
 
     // ── Navigation ──
@@ -394,7 +398,7 @@ ThemeData buildCandorTheme({Brightness brightness = Brightness.dark}) {
 
     // ── Snackbars ──
     snackBarTheme: SnackBarThemeData(
-      backgroundColor: CandorColors.glassSurface3,
+      backgroundColor: CandorColors.overlay,
       contentTextStyle: textTheme.bodyMedium?.copyWith(color: CandorColors.textPrimary),
       actionTextColor: CandorColors.accent,
       behavior: SnackBarBehavior.floating,

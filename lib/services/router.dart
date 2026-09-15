@@ -25,19 +25,20 @@ class EscalationLog {
 }
 
 /// The two-tier router. Per query (PRD §6.4):
-/// 1. run Tier-1 -> draft answer + confidence
-/// 2. read device state
-/// 3. high confidence -> Tier-1; low + device OK -> Tier-2;
-///    low + constrained device -> Tier-1 with degradation note
+/// 1. read device state
+/// 2. multi-step question ([needsDepth]) + device OK -> straight to Tier-2;
+///    a 0.5B draft would be thrown away, so it isn't run
+/// 3. otherwise run Tier-1 -> draft answer + confidence
+/// 4. high confidence -> Tier-1; low + device OK -> Tier-2;
+///    low (or multi-step) + constrained device -> Tier-1 with degradation note
 ///
-/// "Low confidence" means a parsed `conf:` below [confidenceThreshold], an
-/// empty answer, or a refusal. Calibration (on-device, Sep 2026): the 0.5B
-/// *omits* its tag on most good answers (creative asks included) and refuses
-/// only when genuinely stuck, so a missing tag with a substantive, non-refusal
-/// answer is trusted as-is — NOT escalated. Escalation is worth its ~30–50 s
-/// on this hardware only when Tier-1 actually signals struggle (low tag, empty,
-/// refusal). A Tier-2 refusal falls back to Tier-1's draft rather than
-/// replacing a good answer with a snub.
+/// "Low confidence" means a written `conf:` below [confidenceThreshold] (a
+/// written 0 or `x` counts), an empty answer, a refusal, or a hedge ("I'm not
+/// sure"). Calibration (on-device, Sep 2026): the 0.5B reports 0.95–0.99 even
+/// when it confabulates and *omits* its tag on most good answers, so a missing
+/// tag with a substantive answer is trusted — which is why its self-score
+/// alone almost never escalated, and why the query-side [needsDepth] gate
+/// exists. A Tier-2 refusal falls back to a Tier-1 answer rather than a snub.
 class Router {
   static const double confidenceThreshold = 0.7;
 
@@ -63,6 +64,43 @@ class Router {
       r"|not\s+something\s+(?:i|we)\s+can\s+do",
       caseSensitive: false);
 
+  // The model saying it's unsure is a better signal than its own number.
+  static final RegExp _hedgeRe = RegExp(
+      r"\bi(?:['’]?m|\s+am)\s+(?:not\s+(?:sure|certain)|unsure)\b"
+      r"|\bi\s+(?:don['’]?t|do\s+not)\s+(?:know|have\s+(?:enough\s+)?information)\b"
+      r"|\bi\s+(?:can['’]?t|cannot)\s+be\s+(?:sure|certain)\b"
+      r"|\bhard\s+to\s+say\b",
+      caseSensitive: false);
+
+  // ponytail: keyword heuristic, not a classifier. Upgrade path: train a tiny
+  // router on escalations.jsonl once there's enough on-device data.
+  static final RegExp _depthRe = RegExp(
+      r'\bdifferences?\s+between\b'
+      r'|\bcompar(?:e|ed|ing|ison)\b'
+      r'|\b(?:vs|versus)\b'
+      r'|\bstep[\s-]+by[\s-]+step\b'
+      r'|\bpros\s+and\s+cons\b'
+      r'|\badvantages?\s+and\s+disadvantages?\b'
+      r'|\b(?:prove|derive|solve|analy[sz]e|evaluate)\b'
+      r'|\b(?:write|implement|debug|fix|refactor)\b[^.?!\n]*'
+      r'\b(?:code|function|program|script|class|algorithm|query|regex)\b',
+      caseSensitive: false);
+
+  /// Whether the *question* needs the larger model regardless of how
+  /// confident the 0.5B claims to be: comparisons, step-by-step work,
+  /// solve/prove/analyze, code, several questions at once, or a long ask.
+  static bool needsDepth(String query) =>
+      _depthRe.hasMatch(query) ||
+      '?'.allMatches(query).length >= 2 ||
+      query.trim().split(RegExp(r'\s+')).length >= 30;
+
+  static bool _isLow(ModelResult r) =>
+      // A written 0 counts; an unwritten 0.0 means "no tag" and is trusted.
+      ((r.tagged || r.confidence > 0) && r.confidence < confidenceThreshold) ||
+      r.text.trim().isEmpty ||
+      _refusalRe.hasMatch(r.text) ||
+      _hedgeRe.hasMatch(r.text);
+
   final ModelRunner runner;
   final DeviceStateMonitor monitor;
   final EscalationLog log;
@@ -75,23 +113,23 @@ class Router {
 
   Router(this.runner, this.monitor, this.log);
 
+  /// [onStage] fires as each model starts, so the UI can say what's running.
   Future<RouterResult> answer(String query,
       {List<ChatMessage>? history,
-      void Function(String token)? onToken}) async {
+      void Function(String token)? onToken,
+      void Function(Tier tier)? onStage}) async {
     final sw = Stopwatch()..start();
-
-    // Tier-1 runs silently (it's scoring). Only the chosen final answer
-    // streams into the UI. ponytail: stream the Tier-1 draft too and swap it
-    // on escalation if that "draft-then-replace" effect is wanted in the demo.
-    final t1 = await runner.generate(Tier.tier1, query, history: history);
     final device = await monitor.read();
-    // A parsed tag of 0.0 means "missing/unparsable", not "zero" — and with a
-    // substantive, non-refusal answer that is trusted (see class doc).
-    final lowConfidence = (t1.confidence > 0 &&
-            t1.confidence < confidenceThreshold) ||
-        t1.text.trim().isEmpty ||
-        _refusalRe.hasMatch(t1.text);
     final canEscalate = device.allowsEscalation;
+    final depth = needsDepth(query);
+
+    // Tier-1 runs silently (it's scoring). Only Tier-2 streams into the UI.
+    ModelResult? t1;
+    if (!(depth && canEscalate)) {
+      onStage?.call(Tier.tier1);
+      t1 = await runner.generate(Tier.tier1, query, history: history);
+    }
+    final low = t1 != null && _isLow(t1);
 
     final bool escalated;
     final FinalTier tier;
@@ -99,32 +137,43 @@ class Router {
     final String? note;
     String? t2Answer;
 
-    if (lowConfidence && canEscalate) {
+    if ((depth || low) && canEscalate) {
+      onStage?.call(Tier.tier2);
       final t2 = await runner.generate(Tier.tier2, query,
           history: history, onToken: onToken);
       final t2Declined = _refusalRe.hasMatch(t2.text);
-      // Don't let a slow refusal replace a usable Tier-1 draft.
-      final keepT1 = t2Declined && t1.text.trim().isNotEmpty;
+      if (t2Declined && t1 == null) {
+        // Went straight to Tier-2 and it snubbed: get the small model's take.
+        onStage?.call(Tier.tier1);
+        t1 = await runner.generate(Tier.tier1, query, history: history);
+      }
+      // Don't let a slow refusal replace a usable Tier-1 answer.
+      final keepT1 = t2Declined &&
+          t1 != null &&
+          t1.text.trim().isNotEmpty &&
+          !_refusalRe.hasMatch(t1.text);
       escalated = true;
       tier = keepT1 ? FinalTier.tier1 : FinalTier.tier2;
       text = keepT1 ? t1.text : t2.text;
       t2Answer = t2.text; // log the failed trial too
       note = keepT1
           ? 'The larger on-device model declined this ask; kept the Tier-1 answer.'
-          : (t2Declined
+          : t2Declined
               ? 'The larger on-device model also declined this one.'
-              : null);
+              : depth && !low
+                  ? 'Multi-step question: answered by the larger on-device model.'
+                  : null;
     } else {
       escalated = false;
-      if (lowConfidence) {
+      if (depth || low) {
         tier = FinalTier.tier1Constrained;
-        note = 'Low confidence, and this device is constrained: the larger '
-            'model was not run, so this may be less accurate.';
+        note = 'This needed the larger model, but the device is constrained '
+            '(low battery or heat), so it was skipped: this may be less accurate.';
       } else {
         tier = FinalTier.tier1;
         note = null;
       }
-      text = t1.text;
+      text = t1!.text; // only skipped on the escalate branch
     }
 
     final ms = sw.elapsedMilliseconds.toDouble();
@@ -133,8 +182,8 @@ class Router {
     await log.write(EscalationRecord(
       timestamp: DateTime.now().millisecondsSinceEpoch,
       query: query,
-      tier1Answer: t1.text,
-      tier1Confidence: t1.confidence,
+      tier1Answer: t1?.text ?? '',
+      tier1Confidence: t1?.confidence ?? 0,
       batteryPercent: device.batteryPercent,
       thermalStatus: device.thermal,
       escalated: escalated,
@@ -145,7 +194,7 @@ class Router {
     return RouterResult(
       text: text,
       tier: tier,
-      confidence: t1.confidence,
+      confidence: t1?.confidence ?? 0,
       note: note,
       latencyMs: ms,
     );

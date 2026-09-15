@@ -47,6 +47,7 @@ class _BenchmarksScreenState extends State<BenchmarksScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final top = GlassAppBar.bodyTop(context) + 8; // the builders below shadow context
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: GlassAppBar(
@@ -64,7 +65,7 @@ class _BenchmarksScreenState extends State<BenchmarksScreen> {
                 return const Center(child: Text('No bundled models found.'));
               }
               return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 80, 16, 24),
+                padding: EdgeInsets.fromLTRB(16, top, 16, 24),
                 itemCount: models.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
                 itemBuilder: (context, i) {

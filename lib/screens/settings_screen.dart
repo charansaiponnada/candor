@@ -62,7 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         centerTitle: false,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        padding: EdgeInsets.fromLTRB(16, GlassAppBar.bodyTop(context) + 8, 16, 32),
         children: [
           GlassCard(
             margin: const EdgeInsets.only(bottom: 16),
@@ -93,39 +93,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (v) {
                     _persona = v;
                     _save();
-                  },
-                ),
-              ],
-            ),
-          ),
-          GlassCard(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _sectionTitle(context, 'Appearance'),
-                const SizedBox(height: 12),
-                GlassSegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(
-                        value: 'system',
-                        icon: Icon(Icons.brightness_auto_outlined),
-                        label: Text('System')),
-                    ButtonSegment(
-                        value: 'light',
-                        icon: Icon(Icons.light_mode_outlined),
-                        label: Text('Light')),
-                    ButtonSegment(
-                        value: 'dark',
-                        icon: Icon(Icons.dark_mode_outlined),
-                        label: Text('Dark')),
-                  ],
-                  selected: {widget.store.themeMode},
-                  onSelectionChanged: (sel) {
-                    final mode = sel.first;
-                    setState(() => widget.store.themeMode = mode);
-                    unawaited(widget.store.save().catchError((_) {}));
                   },
                 ),
               ],

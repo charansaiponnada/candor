@@ -28,9 +28,9 @@ typedef BenchResult = ({
 /// from the same single generation pass (PRD §9 accepts a proxy).
 ///
 /// Calibration (measured on-device 2026-09-06): Qwen2.5-0.5B reports 0.95–0.99
-/// even when wrong, but *omits* the tag or writes variants (`Conf=`,
-/// `confidence=`, `Conf=<X>`) when it can't answer. The router therefore treats
-/// a missing/unparsable tag as low (0.0) confidence — "can't confirm ⇒ defer".
+/// even when wrong and often omits the tag or writes variants (`Conf=`,
+/// `**conf:0.9**`, a tag on the last line). The parser accepts those; the
+/// router decides what a missing tag means (see Router).
 class ModelRunner {
   static const int _threads = 8;
   static const int _contextSize = 2048;
@@ -50,9 +50,17 @@ class ModelRunner {
       'jokes) is welcome and allowed. Answer the user directly in 4 sentences '
       'or fewer; do not ask follow-up questions.';
 
+  // A whole tag line, tolerating what the 0.5B actually writes: markdown
+  // (`**conf:0.9**`), trailing punctuation (`conf: 0.9.`), `Line 1:`, `<…>`.
   static final RegExp _tagRe = RegExp(
-      r'^\s*conf(?:idence)?\s*[:=]?\s*<?\s*([0-9]+(?:\.[0-9]+)?|x)?\s*>?\s*$',
-      multiLine: true,
+      r'^\s*(?:line\s*1\s*[:.)-]\s*)?[*_`"]*\s*conf(?:idence)?\s*[*_`"]*\s*[:=]?'
+      r'\s*[*_`"]*\s*<?\s*([0-9]+(?:\.[0-9]+)?|x)?\s*>?\s*[*_`".,;]*\s*$',
+      caseSensitive: false);
+
+  // The same tag with the answer on the same line: `conf:0.9 Paris is…`.
+  static final RegExp _inlineTagRe = RegExp(
+      r'^\s*[*_`"]*conf(?:idence)?[*_`"]*\s*[:=]\s*<?\s*([0-9]+(?:\.[0-9]+)?)\s*>?'
+      r'[*_`"]*[\s,;.:-]+(?=\S)',
       caseSensitive: false);
 
   final llama.LlamaController _llama = llama.LlamaController();
@@ -207,6 +215,7 @@ class ModelRunner {
     return ModelResult(
       text: cleaned.$1,
       confidence: tier == Tier.tier1 ? cleaned.$2 : 0.0,
+      tagged: tier == Tier.tier1 && cleaned.$3,
       latencyMs: (sw.elapsedMilliseconds).toDouble(),
     );
   }
@@ -250,25 +259,26 @@ class ModelRunner {
     return acc.reversed.toList();
   }
 
-  /// Strips the leading `conf:…` line, returning `(answer, confidence)` with
-  /// 0.0 when the tag is missing/unparsable (router reads that as "cannot
-  /// confirm", per on-device calibration).
-  static (String, double) cleanTaggedAnswer(String raw) {
+  /// Strips the `conf:…` tag (its own first or last line, or inline at the
+  /// very start), returning `(answer, confidence, tagged)`. Missing or
+  /// unparsable -> `0.0, tagged: false`, which the router trusts on a
+  /// substantive answer. Prose like "My confidence is 0.98…" is not a tag.
+  static (String, double, bool) cleanTaggedAnswer(String raw) {
     final lines = raw.trim().split('\n');
     if (lines.length > 1) {
-      final m = _tagRe.firstMatch(lines.first);
-      if (m != null) {
-        return (lines.skip(1).join('\n').trim(), _tagValue(m));
+      for (final i in [0, lines.length - 1]) {
+        final m = _tagRe.firstMatch(lines[i]);
+        if (m != null) {
+          return (([...lines]..removeAt(i)).join('\n').trim(), _tagValue(m), true);
+        }
       }
+    } else {
+      final m = _tagRe.firstMatch(raw);
+      if (m != null) return ('', _tagValue(m), true);
     }
-    // Single-line partial compliance (`conf=0.9 The answer is…`) — only when
-    // the tag is the very first thing, so prose like "My confidence is 0.98…"
-    // is not mangled.
-    final m = _tagRe.firstMatch(raw);
-    if (m != null && m.start == 0) {
-      return (raw.substring(m.end).trimLeft(), _tagValue(m));
-    }
-    return (raw.trim(), 0.0);
+    final m = _inlineTagRe.firstMatch(raw);
+    if (m != null) return (raw.substring(m.end).trim(), _tagValue(m), true);
+    return (raw.trim(), 0.0, false);
   }
 
   static double _tagValue(RegExpMatch m) {

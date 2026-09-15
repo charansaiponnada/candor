@@ -51,6 +51,7 @@ void main() {
     test('square roots route to the skill, not the model', () async {
       expect(await run('what is the square root of 144'), 'sqrt(144) = 12');
       expect(await run('square root of 9'), 'sqrt(9) = 3');
+      expect(await run('square root 169'), 'sqrt(169) = 13'); // seen on-device
       expect(await run('sqrt 2'), 'sqrt(2) = 1.41421356237');
     });
   });
