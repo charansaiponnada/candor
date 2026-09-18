@@ -8,8 +8,7 @@ why — "an assistant that tells you when it's holding back."
 
 Zero network calls at inference time. Battery/thermal state gate the escalation.
 
-**Demo video:** [youtu.be/fccvX6XuPkw](https://youtu.be/fccvX6XuPkw) (recorded on an earlier build; the
-screenshots below show the current one)
+
 
 [![Candor demo video](https://img.youtube.com/vi/fccvX6XuPkw/hqdefault.jpg)](https://youtu.be/fccvX6XuPkw)
 
